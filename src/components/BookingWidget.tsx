@@ -7,6 +7,8 @@ interface AppointmentType {
   duration_minutes: number
   price: number
   description?: string
+  color?: string
+  is_active?: boolean
 }
 
 interface AvailabilitySlot {
@@ -16,8 +18,6 @@ interface AvailabilitySlot {
 }
 
 interface BookingWidgetProps {
-  appointmentTypes: AppointmentType[]
-  availabilitySlots: AvailabilitySlot[]
   apiBaseUrl?: string
   onBookingComplete?: (booking: any) => void
   onError?: (error: string) => void
@@ -25,8 +25,6 @@ interface BookingWidgetProps {
 }
 
 export default function BookingWidget({
-  appointmentTypes,
-  availabilitySlots,
   apiBaseUrl = '/api',
   onBookingComplete,
   onError,
@@ -39,6 +37,72 @@ export default function BookingWidget({
   const [showCustomRequest, setShowCustomRequest] = useState(false)
   const [loading, setLoading] = useState(false)
   const [step, setStep] = useState(1)
+  
+  // Dynamic data from API
+  const [appointmentTypes, setAppointmentTypes] = useState<AppointmentType[]>([])
+  const [availabilitySlots, setAvailabilitySlots] = useState<AvailabilitySlot[]>([])
+  const [loadingData, setLoadingData] = useState(true)
+
+  // Load appointment types and initial availability on mount
+  useEffect(() => {
+    loadAppointmentTypes()
+  }, [])
+
+  // Load availability when week changes or type is selected
+  useEffect(() => {
+    if (selectedType) {
+      loadAvailability()
+    }
+  }, [currentWeekStart, selectedType])
+
+  const loadAppointmentTypes = async () => {
+    try {
+      setLoadingData(true)
+      const response = await fetch(`${apiBaseUrl}/appointment-types`)
+      
+      if (!response.ok) {
+        throw new Error('Failed to load appointment types')
+      }
+      
+      const data = await response.json()
+      const activeTypes = data.filter((type: AppointmentType) => type.is_active !== false)
+      setAppointmentTypes(activeTypes)
+    } catch (error) {
+      console.error('Error loading appointment types:', error)
+      onError?.('Failed to load appointment types. Please refresh the page.')
+    } finally {
+      setLoadingData(false)
+    }
+  }
+
+  const loadAvailability = async () => {
+    if (!selectedType) return
+    
+    try {
+      setLoading(true)
+      const weekStart = currentWeekStart.toISOString().split('T')[0]
+      const weekEnd = new Date(currentWeekStart)
+      weekEnd.setDate(weekEnd.getDate() + 6)
+      const weekEndStr = weekEnd.toISOString().split('T')[0]
+      
+      const response = await fetch(
+        `${apiBaseUrl}/availability?type_id=${selectedType.id}&start_date=${weekStart}&end_date=${weekEndStr}`
+      )
+      
+      if (!response.ok) {
+        throw new Error('Failed to load availability')
+      }
+      
+      const data = await response.json()
+      setAvailabilitySlots(data.slots || [])
+    } catch (error) {
+      console.error('Error loading availability:', error)
+      onError?.('Failed to load availability. Please try again.')
+      setAvailabilitySlots([])
+    } finally {
+      setLoading(false)
+    }
+  }
 
   // Get week range display
   const getWeekRange = () => {
@@ -116,10 +180,23 @@ export default function BookingWidget({
       onBookingComplete?.(result)
       setStep(3) // Show confirmation
     } catch (error) {
-      onError?.(error.message)
+      console.error('Error creating booking:', error)
+      onError?.('Failed to create booking. Please try again.')
     } finally {
       setLoading(false)
     }
+  }
+
+  // Loading state for initial data
+  if (loadingData) {
+    return (
+      <div className={`max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-6 ${className}`}>
+        <div className="text-center py-12">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading appointment types...</p>
+        </div>
+      </div>
+    )
   }
 
   if (step === 1) {
@@ -127,26 +204,39 @@ export default function BookingWidget({
       <div className={`max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-6 ${className}`}>
         <h2 className="text-2xl font-bold mb-6 text-center">Select Appointment Type</h2>
         
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {appointmentTypes.map((type) => (
-            <button
-              key={type.id}
-              className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-blue-300 transition-colors text-left"
-              onClick={() => {
-                setSelectedType(type)
-                setStep(2)
-              }}
+        {appointmentTypes.length === 0 ? (
+          <div className="text-center py-8">
+            <p className="text-gray-500">No appointment types available at the moment.</p>
+            <button 
+              onClick={loadAppointmentTypes}
+              className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
             >
-              <h3 className="font-semibold text-lg">{type.name}</h3>
-              <p className="text-sm text-gray-600 mt-1">
-                {type.duration_minutes} minutes • ${type.price}
-              </p>
-              {type.description && (
-                <p className="text-xs text-gray-500 mt-2">{type.description}</p>
-              )}
+              Refresh
             </button>
-          ))}
-        </div>
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {appointmentTypes.map((type) => (
+              <button
+                key={type.id}
+                className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-blue-300 transition-colors text-left"
+                style={type.color ? { borderLeftColor: type.color, borderLeftWidth: '4px' } : {}}
+                onClick={() => {
+                  setSelectedType(type)
+                  setStep(2)
+                }}
+              >
+                <h3 className="font-semibold text-lg">{type.name}</h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  {type.duration_minutes} minutes • ${type.price}
+                </p>
+                {type.description && (
+                  <p className="text-xs text-gray-500 mt-2">{type.description}</p>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     )
   }
@@ -186,8 +276,16 @@ export default function BookingWidget({
           </div>
         </div>
 
+        {/* Loading availability */}
+        {loading && (
+          <div className="text-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+            <p className="text-gray-600">Loading availability...</p>
+          </div>
+        )}
+
         {/* Available Days */}
-        {currentWeekSlots.length === 0 ? (
+        {!loading && currentWeekSlots.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-gray-500 mb-4">No appointments available this week</p>
             <button
@@ -197,7 +295,7 @@ export default function BookingWidget({
               Request Custom Time
             </button>
           </div>
-        ) : (
+        ) : !loading && (
           <>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 mb-8">
               {currentWeekSlots.map((slot) => (
@@ -231,11 +329,11 @@ export default function BookingWidget({
 
             {/* Custom Request Section */}
             <div className="border-t pt-6">
-              <div className="text-center">
-                <p className="text-gray-600 mb-3">Cannot find a convenient appointment?</p>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
+                <p className="text-blue-800 mb-3">Cannot find a convenient appointment?</p>
                 <button
                   onClick={() => setShowCustomRequest(true)}
-                  className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                 >
                   Request Custom Time
                 </button>
