@@ -1,5 +1,5 @@
 {
-  "name": "sturij-fitted-furniture",
+  "name": "tailwind-ai-app",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -18,6 +18,7 @@
     "tailwindcss": "^4.0.0",
     "recharts": "^2.1.14",
     "react-router-dom": "^6.21.0",
+    "date-fns": "^3.6.0",
     "@radix-ui/react-slot": "^1.2.0",
     "@radix-ui/react-tabs": "^1.1.0",
     "@radix-ui/react-accordion": "^1.2.0",
