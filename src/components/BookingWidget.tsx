@@ -1,509 +1,499 @@
-import React, { useState, useEffect } from 'react'
-import ProvisionalRequestForm from './ProvisionalRequestForm'
+import React, { useState, useEffect, useCallback } from "react";
+import { Button } from "@/components/ui/button"; 
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Calendar, ChevronLeft, ChevronRight, Clock, Users, MessageCircle } from "lucide-react"; 
+import { addDays, format, getDay, startOfWeek, endOfWeek, eachDayOfInterval, addWeeks, subWeeks, isAfter, isBefore, startOfToday, isSameDay } from "date-fns"; 
+import ProvisionalRequestForm from "./ProvisionalRequestForm";
 
-interface AppointmentType {
-  id: string
-  name: string
-  duration_minutes: number
-  price: number
-  description?: string
-  color?: string
-  is_active?: boolean
+// Base44 API Configuration
+const BASE44_API_ENDPOINT = process.env.REACT_APP_BASE44_API_ENDPOINT || 'YOUR_BASE44_API_ENDPOINT';
+const API_KEY = process.env.REACT_APP_BASE44_API_KEY || 'YOUR_BASE44_API_KEY';
+
+const api = {
+  list: async (entity: string, params = '') => {
+    const response = await fetch(`${BASE44_API_ENDPOINT}/${entity}?${params}`, {
+      headers: { 'Authorization': `Bearer ${API_KEY}` }
+    });
+    if (!response.ok) throw new Error(`API Error: ${response.status} ${response.statusText}`);
+    return response.json();
+  },
+  create: async (entity: string, data: any) => {
+    const response = await fetch(`${BASE44_API_ENDPOINT}/${entity}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${API_KEY}`
+      },
+      body: JSON.stringify(data)
+    });
+    if (!response.ok) throw new Error(`API Error: ${response.status} ${response.statusText}`);
+    return response.json();
+  }
+};
+
+const Appointment = { create: (data: any) => api.create('Appointment', data) };
+const AppointmentType = { list: () => api.list('AppointmentType') };
+const AvailabilitySlot = { list: (params?: string) => api.list('AvailabilitySlot', params) };
+
+interface AppointmentTypeData {
+  id: string;
+  name: string;
+  duration_minutes: number;
+  price: number;
+  description?: string;
+  color?: string;
+  is_active?: boolean;
 }
 
-interface AvailabilitySlot {
-  date: string
-  day_name: string
-  time_slots: string[]
+interface AvailabilitySlotData {
+  id: string;
+  date: string;
+  time: string;
+  appointment_type_id: string;
+  is_available: boolean;
 }
 
 interface BookingWidgetProps {
-  apiBaseUrl?: string
-  onBookingComplete?: (booking: any) => void
-  onError?: (error: string) => void
-  className?: string
+  onBookingComplete?: (booking: any) => void;
+  onError?: (error: string) => void;
+  className?: string;
 }
 
 export default function BookingWidget({
-  apiBaseUrl = '/api',
   onBookingComplete,
   onError,
   className = ""
 }: BookingWidgetProps) {
-  const [currentWeekStart, setCurrentWeekStart] = useState(new Date())
-  const [selectedType, setSelectedType] = useState<AppointmentType | null>(null)
-  const [selectedDate, setSelectedDate] = useState('')
-  const [selectedTime, setSelectedTime] = useState('')
-  const [showCustomRequest, setShowCustomRequest] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [step, setStep] = useState(1)
+  const [currentWeek, setCurrentWeek] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
+  const [selectedType, setSelectedType] = useState<AppointmentTypeData | null>(null);
+  const [selectedDate, setSelectedDate] = useState('');
+  const [selectedTime, setSelectedTime] = useState('');
+  const [showCustomRequest, setShowCustomRequest] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [step, setStep] = useState(1);
   
-  // Dynamic data from API
-  const [appointmentTypes, setAppointmentTypes] = useState<AppointmentType[]>([])
-  const [availabilitySlots, setAvailabilitySlots] = useState<AvailabilitySlot[]>([])
-  const [loadingData, setLoadingData] = useState(true)
-  const [apiError, setApiError] = useState('')
+  // Data from Base44 API
+  const [appointmentTypes, setAppointmentTypes] = useState<AppointmentTypeData[]>([]);
+  const [availabilitySlots, setAvailabilitySlots] = useState<AvailabilitySlotData[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
+  const [apiError, setApiError] = useState('');
 
-  // Fallback data in case API fails
-  const fallbackTypes: AppointmentType[] = [
-    {
-      id: '1',
-      name: 'Consultation',
-      duration_minutes: 30,
-      price: 50,
-      description: 'Initial consultation and assessment'
-    },
-    {
-      id: '2',
-      name: 'Treatment Session',
-      duration_minutes: 60,
-      price: 100,
-      description: 'Full treatment session'
-    },
-    {
-      id: '3',
-      name: 'Follow-up',
-      duration_minutes: 15,
-      price: 25,
-      description: 'Quick follow-up appointment'
-    }
-  ]
-
-  // Load appointment types and initial availability on mount
+  // Load appointment types on mount
   useEffect(() => {
-    loadAppointmentTypes()
-  }, [])
+    loadAppointmentTypes();
+  }, []);
 
-  // Load availability when week changes or type is selected
+  // Load availability when week or type changes
   useEffect(() => {
     if (selectedType) {
-      loadAvailability()
+      loadAvailability();
     }
-  }, [currentWeekStart, selectedType])
+  }, [currentWeek, selectedType]);
 
   const loadAppointmentTypes = async () => {
     try {
-      setLoadingData(true)
-      setApiError('')
+      setLoadingData(true);
+      setApiError('');
       
-      console.log('Loading appointment types from:', `${apiBaseUrl}/appointment-types`)
+      console.log('Loading appointment types from Base44...');
+      const data = await AppointmentType.list();
+      console.log('Appointment types loaded:', data);
       
-      const response = await fetch(`${apiBaseUrl}/appointment-types`)
+      const activeTypes = data.filter((type: AppointmentTypeData) => type.is_active !== false);
+      setAppointmentTypes(activeTypes);
       
-      console.log('Response status:', response.status)
-      console.log('Response headers:', response.headers)
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-      }
-      
-      const contentType = response.headers.get('content-type')
-      if (!contentType || !contentType.includes('application/json')) {
-        const text = await response.text()
-        console.log('Non-JSON response:', text.substring(0, 200))
-        throw new Error('API returned non-JSON response')
-      }
-      
-      const data = await response.json()
-      console.log('Appointment types data:', data)
-      
-      const activeTypes = Array.isArray(data) 
-        ? data.filter((type: AppointmentType) => type.is_active !== false)
-        : data.types?.filter((type: AppointmentType) => type.is_active !== false) || []
-      
-      setAppointmentTypes(activeTypes)
-      
-    } catch (error) {
-      console.error('Error loading appointment types:', error)
-      setApiError(`API Error: ${error.message}`)
-      
-      // Use fallback data
-      console.log('Using fallback appointment types')
-      setAppointmentTypes(fallbackTypes)
+    } catch (error: any) {
+      console.error('Error loading appointment types:', error);
+      setApiError(`Failed to load appointment types: ${error.message}`);
+      onError?.(error.message);
     } finally {
-      setLoadingData(false)
+      setLoadingData(false);
     }
-  }
+  };
 
   const loadAvailability = async () => {
-    if (!selectedType) return
+    if (!selectedType) return;
     
     try {
-      setLoading(true)
-      setApiError('')
+      setLoading(true);
+      setApiError('');
       
-      const weekStart = currentWeekStart.toISOString().split('T')[0]
-      const weekEnd = new Date(currentWeekStart)
-      weekEnd.setDate(weekEnd.getDate() + 6)
-      const weekEndStr = weekEnd.toISOString().split('T')[0]
+      const weekStart = format(currentWeek, 'yyyy-MM-dd');
+      const weekEnd = format(endOfWeek(currentWeek, { weekStartsOn: 1 }), 'yyyy-MM-dd');
       
-      const url = `${apiBaseUrl}/availability?type_id=${selectedType.id}&start_date=${weekStart}&end_date=${weekEndStr}`
-      console.log('Loading availability from:', url)
+      console.log('Loading availability for:', selectedType.name, 'from', weekStart, 'to', weekEnd);
       
-      const response = await fetch(url)
+      const params = `appointment_type_id=${selectedType.id}&date_gte=${weekStart}&date_lte=${weekEnd}&is_available=true`;
+      const data = await AvailabilitySlot.list(params);
       
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-      }
+      console.log('Availability loaded:', data);
+      setAvailabilitySlots(data);
       
-      const contentType = response.headers.get('content-type')
-      if (!contentType || !contentType.includes('application/json')) {
-        throw new Error('API returned non-JSON response')
-      }
-      
-      const data = await response.json()
-      console.log('Availability data:', data)
-      
-      setAvailabilitySlots(data.slots || data.available_slots || [])
-      
-    } catch (error) {
-      console.error('Error loading availability:', error)
-      setApiError(`Availability Error: ${error.message}`)
-      
-      // Use fallback availability data
-      const fallbackSlots = [
-        {
-          date: new Date().toISOString().split('T')[0],
-          day_name: 'Today',
-          time_slots: ['09:00', '10:00', '14:00', '15:00']
-        }
-      ]
-      setAvailabilitySlots(fallbackSlots)
+    } catch (error: any) {
+      console.error('Error loading availability:', error);
+      setApiError(`Failed to load availability: ${error.message}`);
+      setAvailabilitySlots([]);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
+
+  // Group availability slots by date
+  const getAvailabilityByDate = useCallback(() => {
+    const grouped: { [key: string]: AvailabilitySlotData[] } = {};
+    
+    availabilitySlots.forEach(slot => {
+      if (!grouped[slot.date]) {
+        grouped[slot.date] = [];
+      }
+      grouped[slot.date].push(slot);
+    });
+    
+    return grouped;
+  }, [availabilitySlots]);
+
+  // Get days with availability for current week
+  const getWeekDaysWithAvailability = useCallback(() => {
+    const weekDays = eachDayOfInterval({
+      start: currentWeek,
+      end: endOfWeek(currentWeek, { weekStartsOn: 1 })
+    });
+    
+    const availabilityByDate = getAvailabilityByDate();
+    
+    return weekDays
+      .map(day => {
+        const dateStr = format(day, 'yyyy-MM-dd');
+        const slots = availabilityByDate[dateStr] || [];
+        return {
+          date: dateStr,
+          day_name: format(day, 'EEEE'),
+          time_slots: slots.map(slot => slot.time).sort()
+        };
+      })
+      .filter(day => day.time_slots.length > 0);
+  }, [currentWeek, getAvailabilityByDate]);
+
+  // Navigation functions
+  const goToPreviousWeek = () => {
+    setCurrentWeek(subWeeks(currentWeek, 1));
+  };
+
+  const goToNextWeek = () => {
+    setCurrentWeek(addWeeks(currentWeek, 1));
+  };
+
+  const goToToday = () => {
+    setCurrentWeek(startOfWeek(new Date(), { weekStartsOn: 1 }));
+  };
 
   // Get week range display
   const getWeekRange = () => {
-    const start = new Date(currentWeekStart)
-    const end = new Date(start)
-    end.setDate(start.getDate() + 6)
-    
-    const formatDate = (date: Date) => {
-      return date.toLocaleDateString('en-GB', { 
-        day: '2-digit', 
-        month: '2-digit', 
-        year: 'numeric' 
-      })
-    }
-    
-    return `${formatDate(start)} - ${formatDate(end)}`
-  }
-
-  // Navigate weeks
-  const goToPreviousWeek = () => {
-    const newDate = new Date(currentWeekStart)
-    newDate.setDate(newDate.getDate() - 7)
-    setCurrentWeekStart(newDate)
-  }
-
-  const goToNextWeek = () => {
-    const newDate = new Date(currentWeekStart)
-    newDate.setDate(newDate.getDate() + 7)
-    setCurrentWeekStart(newDate)
-  }
-
-  const goToToday = () => {
-    const today = new Date()
-    const startOfWeek = new Date(today)
-    startOfWeek.setDate(today.getDate() - today.getDay() + 1) // Monday
-    setCurrentWeekStart(startOfWeek)
-  }
-
-  // Filter slots for current week
-  const getCurrentWeekSlots = () => {
-    const weekStart = new Date(currentWeekStart)
-    const weekEnd = new Date(weekStart)
-    weekEnd.setDate(weekStart.getDate() + 6)
-
-    return availabilitySlots.filter(slot => {
-      const slotDate = new Date(slot.date)
-      return slotDate >= weekStart && slotDate <= weekEnd && slot.time_slots.length > 0
-    })
-  }
+    const start = currentWeek;
+    const end = endOfWeek(currentWeek, { weekStartsOn: 1 });
+    return `${format(start, 'dd/MM/yyyy')} - ${format(end, 'dd/MM/yyyy')}`;
+  };
 
   // Create provisional booking
   const createProvisionalBooking = async (bookingData: any) => {
     try {
-      setLoading(true)
+      setLoading(true);
       
-      const payload = {
-        ...bookingData,
+      const appointmentData = {
         appointment_type_id: selectedType?.id,
-        primary_date: selectedDate,
-        primary_time: selectedTime,
-        status: 'provisional'
-      }
+        date: selectedDate,
+        time: selectedTime,
+        status: 'provisional',
+        customer_name: bookingData.customer?.name,
+        customer_email: bookingData.customer?.email,
+        customer_phone: bookingData.customer?.phone,
+        notes: bookingData.notes,
+        alternative_dates: bookingData.alternative_dates,
+        is_custom_request: bookingData.is_custom_request || false
+      };
       
-      console.log('Creating booking with payload:', payload)
+      console.log('Creating provisional booking:', appointmentData);
       
-      const response = await fetch(`${apiBaseUrl}/bookings/provisional`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-      }
-
-      const result = await response.json()
-      console.log('Booking created:', result)
+      const result = await Appointment.create(appointmentData);
+      console.log('Booking created:', result);
       
-      onBookingComplete?.(result)
-      setStep(3) // Show confirmation
-    } catch (error) {
-      console.error('Error creating booking:', error)
-      onError?.(`Failed to create booking: ${error.message}`)
+      onBookingComplete?.(result);
+      setStep(3); // Show confirmation
+      
+    } catch (error: any) {
+      console.error('Error creating booking:', error);
+      onError?.(`Failed to create booking: ${error.message}`);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   // Loading state for initial data
   if (loadingData) {
     return (
-      <div className={`max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-6 ${className}`}>
-        <div className="text-center py-12">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading appointment types...</p>
-          <p className="text-xs text-gray-400 mt-2">API: {apiBaseUrl}/appointment-types</p>
-        </div>
-      </div>
-    )
+      <Card className={`max-w-4xl mx-auto ${className}`}>
+        <CardContent className="p-6">
+          <div className="text-center py-12">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading appointment types...</p>
+            <p className="text-xs text-gray-400 mt-2">Connecting to Base44...</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
   }
 
+  // Step 1: Select Appointment Type
   if (step === 1) {
     return (
-      <div className={`max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-6 ${className}`}>
-        <h2 className="text-2xl font-bold mb-6 text-center">Select Appointment Type</h2>
-        
-        {apiError && (
-          <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded mb-4">
-            <p className="text-sm">{apiError}</p>
-            <p className="text-xs mt-1">Using fallback data for demonstration</p>
-          </div>
-        )}
-        
-        {appointmentTypes.length === 0 ? (
-          <div className="text-center py-8">
-            <p className="text-gray-500">No appointment types available.</p>
-            <button 
-              onClick={loadAppointmentTypes}
-              className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              Retry API Call
-            </button>
-          </div>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {appointmentTypes.map((type) => (
-              <button
-                key={type.id}
-                className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-blue-300 transition-colors text-left"
-                style={type.color ? { borderLeftColor: type.color, borderLeftWidth: '4px' } : {}}
-                onClick={() => {
-                  setSelectedType(type)
-                  setStep(2)
-                }}
+      <Card className={`max-w-4xl mx-auto ${className}`}>
+        <CardHeader>
+          <CardTitle className="text-2xl text-center">Select Appointment Type</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {apiError && (
+            <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded mb-4">
+              <p className="text-sm">{apiError}</p>
+              <Button 
+                onClick={loadAppointmentTypes}
+                variant="outline"
+                size="sm"
+                className="mt-2"
               >
-                <h3 className="font-semibold text-lg">{type.name}</h3>
-                <p className="text-sm text-gray-600 mt-1">
-                  {type.duration_minutes} minutes • ${type.price}
-                </p>
-                {type.description && (
-                  <p className="text-xs text-gray-500 mt-2">{type.description}</p>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
-        
-        <div className="mt-6 text-center">
-          <p className="text-xs text-gray-400">
-            API Base URL: {apiBaseUrl}
-          </p>
-        </div>
-      </div>
-    )
-  }
-
-  // Rest of the component remains the same...
-  if (step === 2) {
-    const currentWeekSlots = getCurrentWeekSlots()
-
-    return (
-      <div className={`max-w-6xl mx-auto bg-white rounded-lg shadow-lg p-6 ${className}`}>
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-2xl font-bold">Appointment Calendar</h2>
-            <p className="text-gray-600">{getWeekRange()}</p>
-            <p className="text-sm text-gray-500 mt-1">Selected: {selectedType?.name}</p>
-          </div>
+                Retry
+              </Button>
+            </div>
+          )}
           
-          <div className="flex items-center gap-2">
-            <button
-              onClick={goToPreviousWeek}
-              className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50"
-            >
-              ←
-            </button>
-            <button
-              onClick={goToToday}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              Today
-            </button>
-            <button
-              onClick={goToNextWeek}
-              className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50"
-            >
-              →
-            </button>
-          </div>
-        </div>
-
-        {apiError && (
-          <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded mb-4">
-            <p className="text-sm">{apiError}</p>
-          </div>
-        )}
-
-        {/* Loading availability */}
-        {loading && (
-          <div className="text-center py-8">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
-            <p className="text-gray-600">Loading availability...</p>
-          </div>
-        )}
-
-        {/* Available Days */}
-        {!loading && currentWeekSlots.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-gray-500 mb-4">No appointments available this week</p>
-            <button
-              onClick={() => setShowCustomRequest(true)}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              Request Custom Time
-            </button>
-          </div>
-        ) : !loading && (
-          <>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 mb-8">
-              {currentWeekSlots.map((slot) => (
-                <div key={slot.date} className="border border-gray-200 rounded-lg p-4">
-                  <h3 className="font-semibold text-lg mb-1">{slot.day_name}</h3>
-                  <p className="text-sm text-gray-600 mb-3">
-                    {new Date(slot.date).toLocaleDateString('en-GB')}
-                  </p>
-                  
-                  <div className="space-y-2">
-                    {slot.time_slots.map((time) => (
-                      <button
-                        key={time}
-                        className={`w-full p-2 text-sm border rounded transition-colors ${
-                          selectedDate === slot.date && selectedTime === time
-                            ? 'bg-blue-600 text-white border-blue-600'
-                            : 'border-gray-200 hover:bg-gray-50 hover:border-blue-300'
-                        }`}
-                        onClick={() => {
-                          setSelectedDate(slot.date)
-                          setSelectedTime(time)
-                        }}
-                      >
-                        {time}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+          {appointmentTypes.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-gray-500">No appointment types available.</p>
+              <Button 
+                onClick={loadAppointmentTypes}
+                className="mt-4"
+              >
+                Refresh
+              </Button>
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {appointmentTypes.map((type) => (
+                <Card
+                  key={type.id}
+                  className="cursor-pointer hover:shadow-md transition-shadow"
+                  style={type.color ? { borderLeftColor: type.color, borderLeftWidth: '4px' } : {}}
+                  onClick={() => {
+                    setSelectedType(type);
+                    setStep(2);
+                  }}
+                >
+                  <CardContent className="p-4">
+                    <h3 className="font-semibold text-lg">{type.name}</h3>
+                    <p className="text-sm text-gray-600 mt-1">
+                      {type.duration_minutes} minutes • ${type.price}
+                    </p>
+                    {type.description && (
+                      <p className="text-xs text-gray-500 mt-2">{type.description}</p>
+                    )}
+                  </CardContent>
+                </Card>
               ))}
             </div>
-
-            {/* Custom Request Section */}
-            <div className="border-t pt-6">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
-                <p className="text-blue-800 mb-3">Cannot find a convenient appointment?</p>
-                <button
-                  onClick={() => setShowCustomRequest(true)}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                >
-                  Request Custom Time
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* Action Buttons */}
-        <div className="flex gap-3 mt-6">
-          <button
-            onClick={() => setStep(1)}
-            className="flex-1 p-3 border border-gray-200 rounded-lg hover:bg-gray-50"
-          >
-            ← Back to Services
-          </button>
-          {selectedDate && selectedTime && (
-            <button
-              onClick={() => createProvisionalBooking({
-                primary_date: selectedDate,
-                primary_time: selectedTime
-              })}
-              disabled={loading}
-              className="flex-1 p-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400"
-            >
-              {loading ? 'Booking...' : 'Book Appointment'}
-            </button>
           )}
-        </div>
-
-        {/* Custom Request Modal */}
-        {showCustomRequest && (
-          <ProvisionalRequestForm
-            appointmentType={selectedType}
-            onSubmit={createProvisionalBooking}
-            onCancel={() => setShowCustomRequest(false)}
-            loading={loading}
-          />
-        )}
-      </div>
-    )
+        </CardContent>
+      </Card>
+    );
   }
 
+  // Step 2: Select Date and Time
+  if (step === 2) {
+    const weekDaysWithAvailability = getWeekDaysWithAvailability();
+
+    return (
+      <Card className={`max-w-6xl mx-auto ${className}`}>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Calendar className="h-6 w-6" />
+                Appointment Calendar
+              </CardTitle>
+              <p className="text-gray-600 mt-1">{getWeekRange()}</p>
+              <p className="text-sm text-gray-500">Selected: {selectedType?.name}</p>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={goToPreviousWeek}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={goToToday}
+              >
+                Today
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={goToNextWeek}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        
+        <CardContent>
+          {apiError && (
+            <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded mb-4">
+              <p className="text-sm">{apiError}</p>
+            </div>
+          )}
+
+          {/* Loading availability */}
+          {loading && (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+              <p className="text-gray-600">Loading availability...</p>
+            </div>
+          )}
+
+          {/* Available Days */}
+          {!loading && weekDaysWithAvailability.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-gray-500 mb-4">No appointments available this week</p>
+              <Button onClick={() => setShowCustomRequest(true)}>
+                Request Custom Time
+              </Button>
+            </div>
+          ) : !loading && (
+            <>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 mb-8">
+                {weekDaysWithAvailability.map((day) => (
+                  <Card key={day.date} className="border border-gray-200">
+                    <CardContent className="p-4">
+                      <h3 className="font-semibold text-lg mb-1">{day.day_name}</h3>
+                      <p className="text-sm text-gray-600 mb-3">
+                        {format(new Date(day.date), 'dd/MM/yyyy')}
+                      </p>
+                      
+                      <div className="space-y-2">
+                        {day.time_slots.map((time) => (
+                          <Button
+                            key={time}
+                            variant={selectedDate === day.date && selectedTime === time ? "default" : "outline"}
+                            size="sm"
+                            className="w-full"
+                            onClick={() => {
+                              setSelectedDate(day.date);
+                              setSelectedTime(time);
+                            }}
+                          >
+                            <Clock className="h-3 w-3 mr-1" />
+                            {time}
+                          </Button>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+
+              {/* Custom Request Section */}
+              <div className="border-t pt-6">
+                <Card className="bg-blue-50 border-blue-200">
+                  <CardContent className="p-4 text-center">
+                    <MessageCircle className="h-6 w-6 mx-auto mb-2 text-blue-600" />
+                    <p className="text-blue-800 mb-3">Cannot find a convenient appointment?</p>
+                    <Button 
+                      variant="default"
+                      onClick={() => setShowCustomRequest(true)}
+                    >
+                      Request Custom Time
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+            </>
+          )}
+
+          {/* Action Buttons */}
+          <div className="flex gap-3 mt-6">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => setStep(1)}
+            >
+              ← Back to Services
+            </Button>
+            {selectedDate && selectedTime && (
+              <Button
+                className="flex-1"
+                onClick={() => createProvisionalBooking({
+                  primary_date: selectedDate,
+                  primary_time: selectedTime
+                })}
+                disabled={loading}
+              >
+                {loading ? 'Booking...' : 'Book Appointment'}
+              </Button>
+            )}
+          </div>
+
+          {/* Custom Request Modal */}
+          {showCustomRequest && (
+            <ProvisionalRequestForm
+              appointmentType={selectedType}
+              onSubmit={createProvisionalBooking}
+              onCancel={() => setShowCustomRequest(false)}
+              loading={loading}
+            />
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Step 3: Confirmation
   if (step === 3) {
     return (
-      <div className={`max-w-md mx-auto bg-white rounded-lg shadow-lg p-6 text-center ${className}`}>
-        <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <span className="text-2xl text-green-600">✓</span>
-        </div>
-        <h2 className="text-xl font-bold mb-2 text-green-600">Request Submitted!</h2>
-        <p className="text-gray-600 mb-6">
-          One of the team will be in touch to confirm the request
-        </p>
-        <div className="bg-gray-50 p-4 rounded-lg mb-6 text-left">
-          <p className="text-sm"><strong>Service:</strong> {selectedType?.name}</p>
-          <p className="text-sm"><strong>Requested Date:</strong> {selectedDate}</p>
-          <p className="text-sm"><strong>Requested Time:</strong> {selectedTime}</p>
-          <p className="text-sm"><strong>Status:</strong> Provisional</p>
-        </div>
-        <button
-          onClick={() => {
-            setStep(1)
-            setSelectedType(null)
-            setSelectedDate('')
-            setSelectedTime('')
-          }}
-          className="w-full p-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-        >
-          Book Another Appointment
-        </button>
-      </div>
-    )
+      <Card className={`max-w-md mx-auto ${className}`}>
+        <CardContent className="p-6 text-center">
+          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <span className="text-2xl text-green-600">✓</span>
+          </div>
+          <CardTitle className="text-xl mb-2 text-green-600">Request Submitted!</CardTitle>
+          <p className="text-gray-600 mb-6">
+            One of the team will be in touch to confirm the request
+          </p>
+          <Card className="bg-gray-50 mb-6">
+            <CardContent className="p-4 text-left">
+              <p className="text-sm"><strong>Service:</strong> {selectedType?.name}</p>
+              <p className="text-sm"><strong>Requested Date:</strong> {format(new Date(selectedDate), 'dd/MM/yyyy')}</p>
+              <p className="text-sm"><strong>Requested Time:</strong> {selectedTime}</p>
+              <p className="text-sm"><strong>Status:</strong> Provisional</p>
+            </CardContent>
+          </Card>
+          <Button
+            className="w-full"
+            onClick={() => {
+              setStep(1);
+              setSelectedType(null);
+              setSelectedDate('');
+              setSelectedTime('');
+            }}
+          >
+            Book Another Appointment
+          </Button>
+        </CardContent>
+      </Card>
+    );
   }
 
-  return null
+  return null;
 }
