@@ -1,117 +1,189 @@
-import React, { useState } from "react";
-// Import your own UI components or use standard HTML
+import React, { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Calendar, Plus, Trash2, MessageCircle } from "lucide-react";
-import { format } from "date-fns";
+import { X } from "lucide-react";
 
-// --- API SDK (Mock) ---
-// In your real application, use the same API helper as in BookingWidget.jsx
-const api = {
-  create: async (entity, data) => {
-    console.log(`Creating ${entity} with data:`, data);
-    // Replace with your actual fetch call
-    return Promise.resolve({ id: 'new_id', ...data });
-  }
-};
-const Appointment = { create: (data) => api.create('Appointment', data) };
-// --- End API SDK ---
-
-export default function ProvisionalRequestForm({ appointmentType, onClose }) {
+export default function ProvisionalRequestForm({
+  appointmentType,
+  onSubmit,
+  onCancel,
+  loading
+}) {
   const [formData, setFormData] = useState({
-    customer_name: "", customer_email: "", customer_phone: "",
-    customer_address: "", customer_notes: "",
-    requested_date: "", requested_time: "",
-    additional_dates: [{ date: "", time: "" }]
+    name: '',
+    email: '',
+    phone: '',
+    preferred_date_1: '',
+    preferred_time_1: '',
+    preferred_date_2: '',
+    preferred_time_2: '',
+    preferred_date_3: '',
+    preferred_time_3: '',
+    notes: ''
   });
-  
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
 
-  const addAdditionalDate = () => {
-    setFormData(prev => ({
-      ...prev,
-      additional_dates: [...prev.additional_dates, { date: "", time: "" }]
-    }));
-  };
-
-  const removeAdditionalDate = (index) => {
-    setFormData(prev => ({
-      ...prev,
-      additional_dates: prev.additional_dates.filter((_, i) => i !== index)
-    }));
-  };
-
-  const updateAdditionalDate = (index, field, value) => {
-    setFormData(prev => ({
-      ...prev,
-      additional_dates: prev.additional_dates.map((item, i) => 
-        i === index ? { ...item, [field]: value } : item
-      )
-    }));
-  };
-
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
-    setIsSubmitting(true);
-    try {
-      const validAdditionalDates = formData.additional_dates
-        .filter(item => item.date && item.time)
-        .map(item => `${item.date} at ${item.time}`);
+    
+    const alternativeDates = [
+      { date: formData.preferred_date_1, time: formData.preferred_time_1 },
+      { date: formData.preferred_date_2, time: formData.preferred_time_2 },
+      { date: formData.preferred_date_3, time: formData.preferred_time_3 }
+    ].filter(alt => alt.date && alt.time);
 
-      const appointmentData = {
-        customer_name: formData.customer_name,
-        customer_email: formData.customer_email,
-        customer_phone: formData.customer_phone,
-        customer_address: formData.customer_address,
-        customer_notes: formData.customer_notes,
-        appointment_type: appointmentType.name,
-        appointment_date: formData.requested_date,
-        appointment_time: formData.requested_time,
-        duration_minutes: appointmentType.duration_minutes,
-        status: 'provisional',
-        additional_requested_dates: validAdditionalDates.length > 0 ? JSON.stringify(validAdditionalDates) : null
-      };
-
-      await Appointment.create(appointmentData);
-      setSubmitted(true);
-    } catch (error) {
-      console.error('Error creating provisional appointment:', error);
-      alert('Failed to submit request. Please try again.');
-    }
-    setIsSubmitting(false);
+    onSubmit({
+      customer: {
+        name: formData.name,
+        email: formData.email,
+        phone: formData.phone
+      },
+      alternative_dates: alternativeDates,
+      notes: formData.notes,
+      is_custom_request: true
+    });
   };
 
-  if (submitted) {
-    return (
-      <Card className="border-0 shadow-xl">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-green-600">
-            <MessageCircle className="w-5 h-5" />
-            Request Submitted Successfully
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="text-center py-8">
-          <div className="max-w-md mx-auto">
-            <h3 className="text-lg font-semibold mb-3">Thank you for your request!</h3>
-            <p className="text-gray-600 mb-6">
-              One of our team will be in touch to confirm the request within 1 business day.
-            </p>
-            <Button onClick={onClose} className="bg-blue-600 hover:bg-blue-700 text-white">
-              Close
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
+  const updateFormData = (field, value) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
 
   return (
-    <Card className="border-0 shadow-xl">
-      {/* Main form JSX will be added in the next chunk */}
-    </Card>
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <CardHeader>
+          <div className="flex justify-between items-center">
+            <CardTitle>Request Custom Time</CardTitle>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onCancel}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </CardHeader>
+
+        <CardContent>
+          <Card className="bg-blue-50 border-blue-200 mb-6">
+            <CardContent className="p-4">
+              <p className="text-sm text-blue-800">
+                <strong>Selected Service:</strong> {appointmentType?.name} 
+                ({appointmentType?.duration_minutes} minutes • ${appointmentType?.price})
+              </p>
+            </CardContent>
+          </Card>
+
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Customer Information */}
+            <div className="space-y-4">
+              <h4 className="font-semibold">Your Information</h4>
+              
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="name">Name *</Label>
+                  <Input
+                    id="name"
+                    type="text"
+                    required
+                    value={formData.name}
+                    onChange={(e) => updateFormData('name', e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="email">Email *</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    required
+                    value={formData.email}
+                    onChange={(e) => updateFormData('email', e.target.value)}
+                  />
+                </div>
+              </div>
+              
+              <div>
+                <Label htmlFor="phone">Phone</Label>
+                <Input
+                  id="phone"
+                  type="tel"
+                  value={formData.phone}
+                  onChange={(e) => updateFormData('phone', e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* Preferred Times */}
+            <div className="space-y-4">
+              <h4 className="font-semibold">Preferred Times (up to 3 options)</h4>
+              
+              {[1, 2, 3].map((num) => (
+                <Card key={num} className="border border-gray-200">
+                  <CardContent className="p-4">
+                    <h5 className="font-medium mb-3">Option {num} {num === 1 ? '(Required)' : '(Optional)'}</h5>
+                    <div className="grid md:grid-cols-2 gap-4">
+                      <div>
+                        <Label htmlFor={`date_${num}`}>Date</Label>
+                        <Input
+                          id={`date_${num}`}
+                          type="date"
+                          required={num === 1}
+                          min={new Date().toISOString().split('T')[0]}
+                          value={formData[`preferred_date_${num}`]}
+                          onChange={(e) => updateFormData(`preferred_date_${num}`, e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor={`time_${num}`}>Time</Label>
+                        <Input
+                          id={`time_${num}`}
+                          type="time"
+                          required={num === 1}
+                          value={formData[`preferred_time_${num}`]}
+                          onChange={(e) => updateFormData(`preferred_time_${num}`, e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {/* Additional Notes */}
+            <div>
+              <Label htmlFor="notes">Additional Notes</Label>
+              <Textarea
+                id="notes"
+                rows={4}
+                placeholder="Any special requirements or additional information..."
+                value={formData.notes}
+                onChange={(e) => updateFormData('notes', e.target.value)}
+              />
+            </div>
+
+            {/* Submit Buttons */}
+            <div className="flex gap-3 pt-4">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                onClick={onCancel}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="flex-1"
+                disabled={loading}
+              >
+                {loading ? 'Submitting...' : 'Submit Request'}
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

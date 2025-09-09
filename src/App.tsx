@@ -1,24 +1,28 @@
 import BookingWidget from './components/BookingWidget'
 
 function App() {
-  const handleBookingComplete = (booking: any) => {
+  const handleBookingComplete = (booking) => {
     console.log('Booking completed:', booking)
     // Handle successful booking - maybe show a toast notification
+    alert('Booking request submitted successfully!')
   }
 
-  const handleError = (error: string) => {
+  const handleError = (error) => {
     console.error('Booking error:', error)
     // Handle errors - maybe show an error toast
-    alert(error) // Simple error handling for now
+    alert(`Error: ${error}`)
   }
 
   return (
     <div className="min-h-screen bg-gray-100 py-8">
-      <BookingWidget
-        apiBaseUrl="https://your-base44-api.com/api" // Replace with your actual Base44 API URL
-        onBookingComplete={handleBookingComplete}
-        onError={handleError}
-      />
+      <div className="container mx-auto px-4">
+        <h1 className="text-3xl font-bold text-center mb-8">Book Your Appointment</h1>
+        
+        <BookingWidget
+          onBookingComplete={handleBookingComplete}
+          onError={handleError}
+        />
+      </div>
     </div>
   )
 }
