@@ -151,10 +151,59 @@ export default function BookingWidget() {
     setShowCustomerForm(true);
   };
 
-  // Placeholder for the rest of the component
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    if (!selectedType || !selectedDate || !selectedTime) {
+      alert('Please select appointment type, date and time');
+      setSubmitting(false);
+      return;
+    }
+    try {
+      const appointmentData = {
+        ...formData,
+        appointment_type: selectedType.name,
+        appointment_date: selectedDate,
+        appointment_time: selectedTime,
+        duration_minutes: selectedType.duration_minutes,
+        status: selectedType.requires_verification ? 'pending' : 'confirmed',
+        verification_code: Math.random().toString(36).substr(2, 8).toUpperCase()
+      };
+      await Appointment.create(appointmentData);
+      alert('Booking request submitted successfully! You will receive a confirmation email shortly.');
+      setFormData({ customer_name: "", customer_email: "", customer_phone: "", customer_address: "", customer_notes: "" });
+      setSelectedType(null);
+      setSelectedDate("");
+      setSelectedTime("");
+      setShowCustomerForm(false);
+    } catch (error) {
+      console.error('Error creating appointment:', error);
+      alert('Failed to submit booking. Please try again.');
+    }
+    setSubmitting(false);
+  };
+
+  const navigateWeek = (direction) => {
+    setCurrentWeek(prev => direction === 'next' ? addWeeks(prev, 1) : subWeeks(prev, 1));
+    setSelectedDate("");
+    setSelectedTime("");
+    setShowCustomerForm(false);
+  };
+
+  const goToToday = () => {
+    setCurrentWeek(new Date());
+    setSelectedDate("");
+    setSelectedTime("");
+    setShowCustomerForm(false);
+  };
+
+  if (loading) {
+    return <div className="flex items-center justify-center p-8">Loading booking information...</div>;
+  }
+
   return (
-    <div>
-      {/* Rest of component will be added with subsequent chunks */}
+    <div className="space-y-6 max-w-6xl mx-auto">
+      {/* JSX content will be added in the next chunk */}
     </div>
   );
 }
