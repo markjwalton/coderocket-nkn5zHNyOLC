@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button"; 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Calendar, ChevronLeft, ChevronRight, Clock, MessageCircle } from "lucide-react"; 
-import { addWeeks, subWeeks, startOfWeek, endOfWeek, format, eachDayOfInterval, getDay } from "date-fns"; 
+import { Calendar, ChevronLeft, ChevronRight, Clock, MessageCircle, Mail } from "lucide-react"; 
+import { addWeeks, subWeeks, startOfWeek, endOfWeek, format, eachDayOfInterval, getDay, addDays, differenceInDays } from "date-fns"; 
 import ProvisionalRequestForm from "./ProvisionalRequestForm";
 import { Appointment, AppointmentType, AvailabilitySlot, buildAppointmentTypeQuery } from "../utils/api";
 
@@ -12,9 +12,7 @@ export default function BookingWidget({
   className = ""
 }) {
   const [currentWeek, setCurrentWeek] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
-  const [selectedType, setSelectedType] = useState(null);
-  const [selectedDate, setSelectedDate] = useState('');
-  const [selectedTime, setSelectedTime] = useState('');
+  const [selectedSlot, setSelectedSlot] = useState(null);
   const [showCustomRequest, setShowCustomRequest] = useState(false);
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState(1);
@@ -30,12 +28,10 @@ export default function BookingWidget({
     loadAppointmentTypes();
   }, []);
 
-  // Load availability when week or type changes
+  // Load availability when week changes
   useEffect(() => {
-    if (selectedType) {
-      loadAvailability();
-    }
-  }, [currentWeek, selectedType]);
+    loadAvailability();
+  }, [currentWeek]);
 
   const loadAppointmentTypes = async () => {
     try {
@@ -44,7 +40,6 @@ export default function BookingWidget({
       
       console.log('Loading appointment types from Base44...');
       
-      // Query for active appointment types only
       const query = buildAppointmentTypeQuery({ is_active: true });
       const data = await AppointmentType.list(query);
       
@@ -61,66 +56,30 @@ export default function BookingWidget({
   };
 
   const loadAvailability = async () => {
-    if (!selectedType) return;
-    
     try {
       setLoading(true);
       setApiError('');
       
-      console.log('Loading availability for:', selectedType.name, 'ID:', selectedType.id);
+      console.log('Loading all availability slots...');
       
-      // Try different approaches to load availability
+      // Load all active availability slots
       let data = [];
-      
-      // Approach 1: Try with just is_active filter first
       try {
-        console.log('Trying approach 1: is_active=true only');
         data = await AvailabilitySlot.list('is_active=true');
-        console.log('Approach 1 success - Raw availability data:', data);
-      } catch (error1) {
-        console.log('Approach 1 failed:', error1.message);
-        
-        // Approach 2: Try without any filters
-        try {
-          console.log('Trying approach 2: no filters');
-          data = await AvailabilitySlot.list();
-          console.log('Approach 2 success - Raw availability data:', data);
-        } catch (error2) {
-          console.log('Approach 2 failed:', error2.message);
-          
-          // Approach 3: Try with appointment_types filter
-          try {
-            console.log('Trying approach 3: appointment_types filter');
-            data = await AvailabilitySlot.list(`appointment_types=${selectedType.id}`);
-            console.log('Approach 3 success - Raw availability data:', data);
-          } catch (error3) {
-            console.log('Approach 3 failed:', error3.message);
-            throw new Error('All availability loading approaches failed');
-          }
-        }
+        console.log('Availability loaded:', data);
+      } catch (error) {
+        console.log('API failed, using fallback data:', error.message);
+        data = createFallbackAvailability();
       }
       
-      // Process the data we got
-      if (Array.isArray(data) && data.length > 0) {
-        console.log('Sample availability slot structure:', data[0]);
-        
-        // Filter for current week and convert to our expected format
-        const weekAvailability = processAvailabilityData(data);
-        console.log('Processed week availability:', weekAvailability);
-        setAvailabilitySlots(weekAvailability);
-      } else {
-        console.log('No availability data returned');
-        setAvailabilitySlots([]);
-      }
+      // Process and filter the data
+      const processedSlots = processAvailabilityData(data);
+      setAvailabilitySlots(processedSlots);
       
     } catch (error) {
       console.error('Error loading availability:', error);
       setApiError(`Failed to load availability: ${error.message}`);
-      
-      // Set some fallback data for testing
-      console.log('Setting fallback availability data for testing');
-      const fallbackSlots = createFallbackAvailability();
-      setAvailabilitySlots(fallbackSlots);
+      setAvailabilitySlots(createFallbackAvailability());
     } finally {
       setLoading(false);
     }
@@ -135,51 +94,25 @@ export default function BookingWidget({
 
     const fallbackSlots = [];
     
-    // Create some sample slots for each weekday
     weekDays.forEach((day, index) => {
       if (index < 5) { // Monday to Friday only
         const dateStr = format(day, 'yyyy-MM-dd');
         
-        // Add morning slots
-        fallbackSlots.push({
-          id: `fallback-${dateStr}-09`,
-          date: dateStr,
-          time: '09:00',
-          end_time: '09:30',
-          specialist_email: 'specialist@example.com',
-          is_available: true,
-          original_slot: { fallback: true }
-        });
+        // Create slots with different appointment types
+        const timeSlots = ['09:00', '10:00', '11:00', '14:00', '15:00', '16:00'];
         
-        fallbackSlots.push({
-          id: `fallback-${dateStr}-10`,
-          date: dateStr,
-          time: '10:00',
-          end_time: '10:30',
-          specialist_email: 'specialist@example.com',
-          is_available: true,
-          original_slot: { fallback: true }
-        });
-        
-        // Add afternoon slots
-        fallbackSlots.push({
-          id: `fallback-${dateStr}-14`,
-          date: dateStr,
-          time: '14:00',
-          end_time: '14:30',
-          specialist_email: 'specialist@example.com',
-          is_available: true,
-          original_slot: { fallback: true }
-        });
-        
-        fallbackSlots.push({
-          id: `fallback-${dateStr}-15`,
-          date: dateStr,
-          time: '15:00',
-          end_time: '15:30',
-          specialist_email: 'specialist@example.com',
-          is_available: true,
-          original_slot: { fallback: true }
+        timeSlots.forEach((time, timeIndex) => {
+          const appointmentType = appointmentTypes[timeIndex % appointmentTypes.length];
+          
+          fallbackSlots.push({
+            id: `fallback-${dateStr}-${time}`,
+            date: dateStr,
+            time: time,
+            appointment_type: appointmentType,
+            specialist_email: 'specialist@example.com',
+            is_available: true,
+            fallback: true
+          });
         });
       }
     });
@@ -187,65 +120,57 @@ export default function BookingWidget({
     return fallbackSlots;
   };
 
-  // Process Base44 availability data into our expected format
+  // Process Base44 availability data
   const processAvailabilityData = (slots) => {
     const weekDays = eachDayOfInterval({
       start: currentWeek,
       end: endOfWeek(currentWeek, { weekStartsOn: 1 })
     });
 
-    console.log('Processing availability data for week:', weekDays.map(d => format(d, 'yyyy-MM-dd')));
-
+    const today = new Date();
+    
     return slots
-      .filter(slot => {
-        // If slot has day_of_week, use that
-        if (slot.day_of_week !== undefined) {
-          const slotDayOfWeek = slot.day_of_week; // 0 = Sunday, 1 = Monday, etc.
-          const hasMatchingDay = weekDays.some(day => getDay(day) === slotDayOfWeek);
-          console.log(`Slot day_of_week ${slotDayOfWeek} matches current week:`, hasMatchingDay);
-          return hasMatchingDay;
-        }
-        
-        // If slot has a date field, use that
-        if (slot.date) {
-          const slotDate = new Date(slot.date);
-          const isInWeek = weekDays.some(day => 
-            format(day, 'yyyy-MM-dd') === format(slotDate, 'yyyy-MM-dd')
-          );
-          console.log(`Slot date ${slot.date} is in current week:`, isInWeek);
-          return isInWeek;
-        }
-        
-        // Default to including the slot
-        return true;
-      })
       .map(slot => {
         let targetDate;
         
-        // If slot has day_of_week, find the corresponding date in current week
+        // Handle day_of_week format
         if (slot.day_of_week !== undefined) {
           targetDate = weekDays.find(day => getDay(day) === slot.day_of_week);
-        }
-        // If slot has a date field, use that
-        else if (slot.date) {
+        } else if (slot.date) {
           targetDate = new Date(slot.date);
+        } else {
+          return null;
         }
-        // Default to first day of week
-        else {
-          targetDate = weekDays[0];
-        }
+
+        if (!targetDate) return null;
+
+        const dateStr = format(targetDate, 'yyyy-MM-dd');
         
+        // Find the appointment type for this slot
+        const appointmentType = appointmentTypes.find(type => 
+          type.id === slot.appointment_types || 
+          type.name === slot.appointment_types
+        ) || appointmentTypes[0]; // fallback to first type
+
+        // Check advance booking requirements
+        if (appointmentType?.advance_booking_days) {
+          const daysFromNow = differenceInDays(targetDate, today);
+          if (daysFromNow < appointmentType.advance_booking_days) {
+            return null; // Skip this slot - doesn't meet advance booking requirement
+          }
+        }
+
         return {
-          id: slot.id || `slot-${Math.random()}`,
-          date: format(targetDate, 'yyyy-MM-dd'),
-          time: slot.start_time || slot.time || '09:00',
-          end_time: slot.end_time || '09:30',
+          id: slot.id || `slot-${dateStr}-${slot.start_time}`,
+          date: dateStr,
+          time: slot.start_time || slot.time,
+          appointment_type: appointmentType,
           specialist_email: slot.specialist_email || '',
           is_available: slot.is_active !== false,
           original_slot: slot
         };
       })
-      .filter(slot => slot.is_available);
+      .filter(slot => slot && slot.is_available && slot.appointment_type);
   };
 
   // Group availability slots by date
@@ -257,6 +182,11 @@ export default function BookingWidget({
         grouped[slot.date] = [];
       }
       grouped[slot.date].push(slot);
+    });
+    
+    // Sort slots within each date by time
+    Object.keys(grouped).forEach(date => {
+      grouped[date].sort((a, b) => a.time.localeCompare(b.time));
     });
     
     return grouped;
@@ -278,11 +208,10 @@ export default function BookingWidget({
         return {
           date: dateStr,
           day_name: format(day, 'EEEE'),
-          time_slots: slots.map(slot => slot.time).sort(),
-          slots: slots // Keep original slot data for booking
+          slots: slots
         };
       })
-      .filter(day => day.time_slots.length > 0);
+      .filter(day => day.slots.length > 0);
   }, [currentWeek, getAvailabilityByDate]);
 
   // Navigation functions
@@ -310,15 +239,12 @@ export default function BookingWidget({
     return Math.random().toString(36).substring(2, 8).toUpperCase();
   };
 
-  // Create provisional booking
-  const createProvisionalBooking = async (bookingData) => {
+  // Create booking
+  const createBooking = async (bookingData) => {
     try {
       setLoading(true);
       
-      // Find the selected availability slot
-      const selectedSlot = availabilitySlots.find(
-        slot => slot.date === selectedDate && slot.time === selectedTime
-      );
+      const appointmentType = selectedSlot.appointment_type;
       
       // Format additional requested dates for Base44
       const additionalDates = bookingData.alternative_dates?.map(alt => 
@@ -333,18 +259,18 @@ export default function BookingWidget({
         customer_address: bookingData.customer?.address || '',
         
         // Appointment details
-        appointment_type: selectedType?.id || selectedType?.name,
-        appointment_date: selectedDate,
-        appointment_time: selectedTime,
-        duration_minutes: selectedType?.duration_minutes || 30,
+        appointment_type: appointmentType?.id || appointmentType?.name,
+        appointment_date: selectedSlot.date,
+        appointment_time: selectedSlot.time,
+        duration_minutes: appointmentType?.duration_minutes || 30,
         
         // Status and verification
-        status: 'provisional',
+        status: appointmentType?.requires_verification ? 'pending_verification' : 'provisional',
         is_verified: false,
-        verification_code: selectedType?.requires_verification ? generateVerificationCode() : '',
+        verification_code: appointmentType?.requires_verification ? generateVerificationCode() : '',
         
         // Specialist assignment
-        assigned_specialist: selectedSlot?.specialist_email || '',
+        assigned_specialist: selectedSlot.specialist_email || '',
         
         // Notes
         notes: '', // Internal notes - can be filled by staff
@@ -354,17 +280,17 @@ export default function BookingWidget({
         additional_requested_dates: additionalDates,
         
         // Integration fields (optional)
-        google_event_id: '', // Will be populated when calendar event is created
-        cancellation_reason: '' // Empty for new bookings
+        google_event_id: '',
+        cancellation_reason: ''
       };
       
-      console.log('Creating provisional booking with correct field mapping:', appointmentData);
+      console.log('Creating booking:', appointmentData);
       
       const result = await Appointment.create(appointmentData);
       console.log('Booking created:', result);
       
-      // Optionally update the availability slot to mark it as booked (only for real slots, not fallback)
-      if (selectedSlot && !bookingData.is_custom_request && !selectedSlot.original_slot?.fallback) {
+      // Mark availability slot as booked (only for real slots, not fallback)
+      if (!selectedSlot.fallback) {
         try {
           await AvailabilitySlot.update(selectedSlot.id, { is_active: false });
           console.log('Availability slot marked as booked');
@@ -374,7 +300,7 @@ export default function BookingWidget({
       }
       
       onBookingComplete?.(result);
-      setStep(3); // Show confirmation
+      setStep(2); // Show confirmation
       
     } catch (error) {
       console.error('Error creating booking:', error);
@@ -387,11 +313,11 @@ export default function BookingWidget({
   // Loading state for initial data
   if (loadingData) {
     return (
-      <Card className={`max-w-4xl mx-auto ${className}`}>
+      <Card className={`max-w-6xl mx-auto ${className}`}>
         <CardContent className="p-6">
           <div className="text-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading appointment types...</p>
+            <p className="text-gray-600">Loading available appointments...</p>
             <p className="text-xs text-gray-400 mt-2">Connecting to Base44...</p>
           </div>
         </CardContent>
@@ -399,81 +325,8 @@ export default function BookingWidget({
     );
   }
 
-  // Step 1: Select Appointment Type
+  // Step 1: Select Available Appointment
   if (step === 1) {
-    return (
-      <Card className={`max-w-4xl mx-auto ${className}`}>
-        <CardHeader>
-          <CardTitle className="text-2xl text-center">Select Appointment Type</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {apiError && (
-            <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded mb-4">
-              <p className="text-sm">{apiError}</p>
-              <Button 
-                onClick={loadAppointmentTypes}
-                variant="outline"
-                size="sm"
-                className="mt-2"
-              >
-                Retry
-              </Button>
-            </div>
-          )}
-          
-          {appointmentTypes.length === 0 ? (
-            <div className="text-center py-8">
-              <p className="text-gray-500">No appointment types available.</p>
-              <Button 
-                onClick={loadAppointmentTypes}
-                className="mt-4"
-              >
-                Refresh
-              </Button>
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {appointmentTypes.map((type) => (
-                <Card
-                  key={type.id}
-                  className="cursor-pointer hover:shadow-md transition-shadow"
-                  style={type.colour ? { borderLeftColor: type.colour, borderLeftWidth: '4px' } : {}}
-                  onClick={() => {
-                    setSelectedType(type);
-                    setStep(2);
-                  }}
-                >
-                  <CardContent className="p-4">
-                    <h3 className="font-semibold text-lg">{type.name}</h3>
-                    <p className="text-sm text-gray-600 mt-1">
-                      {type.duration_minutes} minutes
-                      {type.price && ` • $${type.price}`}
-                    </p>
-                    {type.description && (
-                      <p className="text-xs text-gray-500 mt-2">{type.description}</p>
-                    )}
-                    {type.requires_verification && (
-                      <p className="text-xs text-orange-600 mt-1 font-medium">
-                        ⚠️ Requires verification
-                      </p>
-                    )}
-                    {type.advance_booking_days && (
-                      <p className="text-xs text-blue-600 mt-1">
-                        📅 Book {type.advance_booking_days} days in advance
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    );
-  }
-
-  // Step 2: Select Date and Time
-  if (step === 2) {
     const weekDaysWithAvailability = getWeekDaysWithAvailability();
 
     return (
@@ -483,18 +336,10 @@ export default function BookingWidget({
             <div>
               <CardTitle className="flex items-center gap-2">
                 <Calendar className="h-6 w-6" />
-                Appointment Calendar
+                Book Your Appointment
               </CardTitle>
               <p className="text-gray-600 mt-1">{getWeekRange()}</p>
-              <div className="flex items-center gap-4 mt-1">
-                <p className="text-sm text-gray-500">Selected: {selectedType?.name}</p>
-                {selectedType?.colour && (
-                  <div 
-                    className="w-3 h-3 rounded-full"
-                    style={{ backgroundColor: selectedType.colour }}
-                  />
-                )}
-              </div>
+              <p className="text-sm text-gray-500">Select an available appointment slot</p>
             </div>
             
             <div className="flex items-center gap-2">
@@ -527,25 +372,7 @@ export default function BookingWidget({
           {apiError && (
             <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded mb-4">
               <p className="text-sm">{apiError}</p>
-              <p className="text-xs mt-1">Using fallback availability data for demonstration</p>
-            </div>
-          )}
-
-          {/* Show advance booking notice */}
-          {selectedType?.advance_booking_days && (
-            <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded mb-4">
-              <p className="text-sm">
-                📅 This appointment type requires booking {selectedType.advance_booking_days} days in advance
-              </p>
-            </div>
-          )}
-
-          {/* Show verification notice */}
-          {selectedType?.requires_verification && (
-            <div className="bg-orange-50 border border-orange-200 text-orange-800 px-4 py-3 rounded mb-4">
-              <p className="text-sm">
-                ⚠️ This appointment requires verification before confirmation. You will receive a verification code.
-              </p>
+              <p className="text-xs mt-1">Using demonstration data</p>
             </div>
           )}
 
@@ -557,7 +384,7 @@ export default function BookingWidget({
             </div>
           )}
 
-          {/* Available Days */}
+          {/* Available Appointment Slots */}
           {!loading && weekDaysWithAvailability.length === 0 ? (
             <div className="text-center py-12">
               <p className="text-gray-500 mb-4">No appointments available this week</p>
@@ -567,43 +394,86 @@ export default function BookingWidget({
             </div>
           ) : !loading && (
             <>
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 mb-8">
+              <div className="space-y-6">
                 {weekDaysWithAvailability.map((day) => (
-                  <Card key={day.date} className="border border-gray-200">
-                    <CardContent className="p-4">
-                      <h3 className="font-semibold text-lg mb-1">{day.day_name}</h3>
-                      <p className="text-sm text-gray-600 mb-3">
-                        {format(new Date(day.date), 'dd/MM/yyyy')}
-                      </p>
-                      
-                      <div className="space-y-2">
-                        {day.time_slots.map((time) => (
-                          <Button
-                            key={time}
-                            variant={selectedDate === day.date && selectedTime === time ? "default" : "outline"}
-                            size="sm"
-                            className="w-full"
-                            onClick={() => {
-                              setSelectedDate(day.date);
-                              setSelectedTime(time);
-                            }}
-                          >
-                            <Clock className="h-3 w-3 mr-1" />
-                            {time}
-                          </Button>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <div key={day.date}>
+                    <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                      <Calendar className="h-4 w-4" />
+                      {day.day_name}, {format(new Date(day.date), 'dd/MM/yyyy')}
+                    </h3>
+                    
+                    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                      {day.slots.map((slot) => (
+                        <Card
+                          key={slot.id}
+                          className={`cursor-pointer transition-all hover:shadow-md ${
+                            selectedSlot?.id === slot.id 
+                              ? 'ring-2 ring-blue-500 bg-blue-50' 
+                              : 'hover:bg-gray-50'
+                          }`}
+                          style={slot.appointment_type?.colour ? { 
+                            borderLeftColor: slot.appointment_type.colour, 
+                            borderLeftWidth: '4px' 
+                          } : {}}
+                          onClick={() => setSelectedSlot(slot)}
+                        >
+                          <CardContent className="p-4">
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <Clock className="h-4 w-4 text-blue-600" />
+                                  <span className="font-semibold text-lg">{slot.time}</span>
+                                </div>
+                                
+                                <h4 className="font-medium text-gray-900 mb-1">
+                                  {slot.appointment_type?.name}
+                                </h4>
+                                
+                                <div className="text-sm text-gray-600 space-y-1">
+                                  <p>{slot.appointment_type?.duration_minutes} minutes</p>
+                                  {slot.appointment_type?.price && (
+                                    <p className="font-medium">${slot.appointment_type.price}</p>
+                                  )}
+                                  {slot.specialist_email && (
+                                    <p className="text-xs">with {slot.specialist_email}</p>
+                                  )}
+                                </div>
+                                
+                                {slot.appointment_type?.description && (
+                                  <p className="text-xs text-gray-500 mt-2">
+                                    {slot.appointment_type.description}
+                                  </p>
+                                )}
+                                
+                                {slot.appointment_type?.requires_verification && (
+                                  <div className="flex items-center gap-1 mt-2 text-xs text-orange-600">
+                                    <Mail className="h-3 w-3" />
+                                    <span>Email verification required</span>
+                                  </div>
+                                )}
+                              </div>
+                              
+                              {slot.appointment_type?.colour && (
+                                <div 
+                                  className="w-3 h-3 rounded-full mt-1"
+                                  style={{ backgroundColor: slot.appointment_type.colour }}
+                                />
+                              )}
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </div>
 
               {/* Custom Request Section */}
-              <div className="border-t pt-6">
+              <div className="border-t pt-6 mt-8">
                 <Card className="bg-blue-50 border-blue-200">
                   <CardContent className="p-4 text-center">
                     <MessageCircle className="h-6 w-6 mx-auto mb-2 text-blue-600" />
-                    <p className="text-blue-800 mb-3">Cannot find a convenient appointment?</p>
+                    <p className="text-blue-800 mb-3">Cannot find a suitable appointment?</p>
                     <Button 
                       variant="default"
                       onClick={() => setShowCustomRequest(true)}
@@ -616,34 +486,53 @@ export default function BookingWidget({
             </>
           )}
 
-          {/* Action Buttons */}
-          <div className="flex gap-3 mt-6">
-            <Button
-              variant="outline"
-              className="flex-1"
-              onClick={() => setStep(1)}
-            >
-              ← Back to Services
-            </Button>
-            {selectedDate && selectedTime && (
-              <Button
-                className="flex-1"
-                onClick={() => createProvisionalBooking({
-                  primary_date: selectedDate,
-                  primary_time: selectedTime
-                })}
-                disabled={loading}
-              >
-                {loading ? 'Booking...' : 'Book Appointment'}
-              </Button>
-            )}
-          </div>
+          {/* Book Selected Appointment */}
+          {selectedSlot && (
+            <div className="border-t pt-6 mt-6">
+              <Card className="bg-green-50 border-green-200">
+                <CardContent className="p-4">
+                  <h4 className="font-semibold text-green-800 mb-2">Selected Appointment</h4>
+                  <div className="text-sm text-green-700 mb-4">
+                    <p><strong>{selectedSlot.appointment_type?.name}</strong></p>
+                    <p>{format(new Date(selectedSlot.date), 'EEEE, dd/MM/yyyy')} at {selectedSlot.time}</p>
+                    <p>{selectedSlot.appointment_type?.duration_minutes} minutes</p>
+                    {selectedSlot.appointment_type?.price && (
+                      <p>${selectedSlot.appointment_type.price}</p>
+                    )}
+                  </div>
+                  
+                  {selectedSlot.appointment_type?.requires_verification && (
+                    <div className="bg-orange-50 border border-orange-200 text-orange-800 px-3 py-2 rounded mb-4">
+                      <div className="flex items-center gap-2">
+                        <Mail className="h-4 w-4" />
+                        <span className="text-sm font-medium">Email Verification Required</span>
+                      </div>
+                      <p className="text-xs mt-1">
+                        You'll receive a verification email. The appointment won't be confirmed until you respond.
+                      </p>
+                    </div>
+                  )}
+                  
+                  <Button
+                    className="w-full"
+                    onClick={() => createBooking({ 
+                      customer: { name: '', email: '', phone: '' },
+                      notes: ''
+                    })}
+                    disabled={loading}
+                  >
+                    {loading ? 'Booking...' : 'Book This Appointment'}
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
           {/* Custom Request Modal */}
           {showCustomRequest && (
             <ProvisionalRequestForm
-              appointmentType={selectedType}
-              onSubmit={createProvisionalBooking}
+              appointmentType={selectedSlot?.appointment_type}
+              onSubmit={createBooking}
               onCancel={() => setShowCustomRequest(false)}
               loading={loading}
             />
@@ -653,42 +542,55 @@ export default function BookingWidget({
     );
   }
 
-  // Step 3: Confirmation
-  if (step === 3) {
+  // Step 2: Confirmation
+  if (step === 2) {
+    const requiresVerification = selectedSlot?.appointment_type?.requires_verification;
+    
     return (
       <Card className={`max-w-md mx-auto ${className}`}>
         <CardContent className="p-6 text-center">
-          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <span className="text-2xl text-green-600">✓</span>
+          <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${
+            requiresVerification ? 'bg-orange-100' : 'bg-green-100'
+          }`}>
+            {requiresVerification ? (
+              <Mail className="h-8 w-8 text-orange-600" />
+            ) : (
+              <span className="text-2xl text-green-600">✓</span>
+            )}
           </div>
-          <CardTitle className="text-xl mb-2 text-green-600">
-            {selectedType?.requires_verification ? 'Verification Required!' : 'Request Submitted!'}
+          
+          <CardTitle className={`text-xl mb-2 ${
+            requiresVerification ? 'text-orange-600' : 'text-green-600'
+          }`}>
+            {requiresVerification ? 'Verification Email Sent!' : 'Appointment Booked!'}
           </CardTitle>
+          
           <p className="text-gray-600 mb-6">
-            {selectedType?.requires_verification 
-              ? 'Your appointment request will be reviewed and you will receive a verification code before confirmation'
-              : 'One of the team will be in touch to confirm the request'
+            {requiresVerification 
+              ? 'Check your email and click the verification link to confirm your appointment. It will not appear in the calendar until verified.'
+              : 'Your appointment has been successfully booked and added to the calendar.'
             }
           </p>
+          
           <Card className="bg-gray-50 mb-6">
             <CardContent className="p-4 text-left">
-              <p className="text-sm"><strong>Service:</strong> {selectedType?.name}</p>
-              <p className="text-sm"><strong>Duration:</strong> {selectedType?.duration_minutes} minutes</p>
-              {selectedType?.price && (
-                <p className="text-sm"><strong>Price:</strong> ${selectedType.price}</p>
+              <p className="text-sm"><strong>Service:</strong> {selectedSlot?.appointment_type?.name}</p>
+              <p className="text-sm"><strong>Date:</strong> {format(new Date(selectedSlot?.date), 'EEEE, dd/MM/yyyy')}</p>
+              <p className="text-sm"><strong>Time:</strong> {selectedSlot?.time}</p>
+              <p className="text-sm"><strong>Duration:</strong> {selectedSlot?.appointment_type?.duration_minutes} minutes</p>
+              {selectedSlot?.appointment_type?.price && (
+                <p className="text-sm"><strong>Price:</strong> ${selectedSlot.appointment_type.price}</p>
               )}
-              <p className="text-sm"><strong>Requested Date:</strong> {format(new Date(selectedDate), 'dd/MM/yyyy')}</p>
-              <p className="text-sm"><strong>Requested Time:</strong> {selectedTime}</p>
-              <p className="text-sm"><strong>Status:</strong> {selectedType?.requires_verification ? 'Pending Verification' : 'Provisional'}</p>
+              <p className="text-sm"><strong>Status:</strong> {requiresVerification ? 'Pending Email Verification' : 'Confirmed'}</p>
             </CardContent>
           </Card>
+          
           <Button
             className="w-full"
             onClick={() => {
               setStep(1);
-              setSelectedType(null);
-              setSelectedDate('');
-              setSelectedTime('');
+              setSelectedSlot(null);
+              loadAvailability(); // Refresh availability
             }}
           >
             Book Another Appointment
