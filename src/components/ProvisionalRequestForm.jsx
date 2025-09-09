@@ -76,15 +76,42 @@ export default function ProvisionalRequestForm({ appointmentType, onClose }) {
         additional_requested_dates: validAdditionalDates.length > 0 ? JSON.stringify(validAdditionalDates) : null
       };
 
-      // Placeholder for the rest of the component
-      return (
-        <div>
-          {/* Rest of component will be added with subsequent chunks */}
-        </div>
-      );
+      await Appointment.create(appointmentData);
+      setSubmitted(true);
     } catch (error) {
-      console.error('Error submitting provisional request:', error);
+      console.error('Error creating provisional appointment:', error);
+      alert('Failed to submit request. Please try again.');
     }
     setIsSubmitting(false);
   };
+
+  if (submitted) {
+    return (
+      <Card className="border-0 shadow-xl">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-green-600">
+            <MessageCircle className="w-5 h-5" />
+            Request Submitted Successfully
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="text-center py-8">
+          <div className="max-w-md mx-auto">
+            <h3 className="text-lg font-semibold mb-3">Thank you for your request!</h3>
+            <p className="text-gray-600 mb-6">
+              One of our team will be in touch to confirm the request within 1 business day.
+            </p>
+            <Button onClick={onClose} className="bg-blue-600 hover:bg-blue-700 text-white">
+              Close
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="border-0 shadow-xl">
+      {/* Main form JSX will be added in the next chunk */}
+    </Card>
+  );
 }
