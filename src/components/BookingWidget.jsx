@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Calendar, ChevronLeft, ChevronRight, Clock, MessageCircle } from "lucide-react"; 
 import { addWeeks, subWeeks, startOfWeek, endOfWeek, format, eachDayOfInterval, getDay } from "date-fns"; 
 import ProvisionalRequestForm from "./ProvisionalRequestForm";
-import { Appointment, AppointmentType, AvailabilitySlot, buildAppointmentTypeQuery, buildAvailabilityQuery } from "../utils/api";
+import { Appointment, AppointmentType, AvailabilitySlot, buildAppointmentTypeQuery } from "../utils/api";
 
 export default function BookingWidget({
   onBookingComplete,
@@ -67,28 +67,124 @@ export default function BookingWidget({
       setLoading(true);
       setApiError('');
       
-      console.log('Loading availability for:', selectedType.name);
+      console.log('Loading availability for:', selectedType.name, 'ID:', selectedType.id);
       
-      // Build query for current week's availability
-      const query = buildAvailabilityQuery({
-        is_active: true,
-        appointment_types: selectedType.id // or selectedType.name, depending on your data structure
-      });
+      // Try different approaches to load availability
+      let data = [];
       
-      const data = await AvailabilitySlot.list(query);
-      console.log('Availability loaded:', data);
+      // Approach 1: Try with just is_active filter first
+      try {
+        console.log('Trying approach 1: is_active=true only');
+        data = await AvailabilitySlot.list('is_active=true');
+        console.log('Approach 1 success - Raw availability data:', data);
+      } catch (error1) {
+        console.log('Approach 1 failed:', error1.message);
+        
+        // Approach 2: Try without any filters
+        try {
+          console.log('Trying approach 2: no filters');
+          data = await AvailabilitySlot.list();
+          console.log('Approach 2 success - Raw availability data:', data);
+        } catch (error2) {
+          console.log('Approach 2 failed:', error2.message);
+          
+          // Approach 3: Try with appointment_types filter
+          try {
+            console.log('Trying approach 3: appointment_types filter');
+            data = await AvailabilitySlot.list(`appointment_types=${selectedType.id}`);
+            console.log('Approach 3 success - Raw availability data:', data);
+          } catch (error3) {
+            console.log('Approach 3 failed:', error3.message);
+            throw new Error('All availability loading approaches failed');
+          }
+        }
+      }
       
-      // Filter for current week and convert to our expected format
-      const weekAvailability = processAvailabilityData(data);
-      setAvailabilitySlots(weekAvailability);
+      // Process the data we got
+      if (Array.isArray(data) && data.length > 0) {
+        console.log('Sample availability slot structure:', data[0]);
+        
+        // Filter for current week and convert to our expected format
+        const weekAvailability = processAvailabilityData(data);
+        console.log('Processed week availability:', weekAvailability);
+        setAvailabilitySlots(weekAvailability);
+      } else {
+        console.log('No availability data returned');
+        setAvailabilitySlots([]);
+      }
       
     } catch (error) {
       console.error('Error loading availability:', error);
       setApiError(`Failed to load availability: ${error.message}`);
-      setAvailabilitySlots([]);
+      
+      // Set some fallback data for testing
+      console.log('Setting fallback availability data for testing');
+      const fallbackSlots = createFallbackAvailability();
+      setAvailabilitySlots(fallbackSlots);
     } finally {
       setLoading(false);
     }
+  };
+
+  // Create fallback availability data for testing
+  const createFallbackAvailability = () => {
+    const weekDays = eachDayOfInterval({
+      start: currentWeek,
+      end: endOfWeek(currentWeek, { weekStartsOn: 1 })
+    });
+
+    const fallbackSlots = [];
+    
+    // Create some sample slots for each weekday
+    weekDays.forEach((day, index) => {
+      if (index < 5) { // Monday to Friday only
+        const dateStr = format(day, 'yyyy-MM-dd');
+        
+        // Add morning slots
+        fallbackSlots.push({
+          id: `fallback-${dateStr}-09`,
+          date: dateStr,
+          time: '09:00',
+          end_time: '09:30',
+          specialist_email: 'specialist@example.com',
+          is_available: true,
+          original_slot: { fallback: true }
+        });
+        
+        fallbackSlots.push({
+          id: `fallback-${dateStr}-10`,
+          date: dateStr,
+          time: '10:00',
+          end_time: '10:30',
+          specialist_email: 'specialist@example.com',
+          is_available: true,
+          original_slot: { fallback: true }
+        });
+        
+        // Add afternoon slots
+        fallbackSlots.push({
+          id: `fallback-${dateStr}-14`,
+          date: dateStr,
+          time: '14:00',
+          end_time: '14:30',
+          specialist_email: 'specialist@example.com',
+          is_available: true,
+          original_slot: { fallback: true }
+        });
+        
+        fallbackSlots.push({
+          id: `fallback-${dateStr}-15`,
+          date: dateStr,
+          time: '15:00',
+          end_time: '15:30',
+          specialist_email: 'specialist@example.com',
+          is_available: true,
+          original_slot: { fallback: true }
+        });
+      }
+    });
+    
+    return fallbackSlots;
   };
 
   // Process Base44 availability data into our expected format
@@ -98,23 +194,54 @@ export default function BookingWidget({
       end: endOfWeek(currentWeek, { weekStartsOn: 1 })
     });
 
+    console.log('Processing availability data for week:', weekDays.map(d => format(d, 'yyyy-MM-dd')));
+
     return slots
       .filter(slot => {
-        // Filter slots for current week
-        const slotDayOfWeek = slot.day_of_week; // 0 = Sunday, 1 = Monday, etc.
-        return weekDays.some(day => getDay(day) === slotDayOfWeek);
+        // If slot has day_of_week, use that
+        if (slot.day_of_week !== undefined) {
+          const slotDayOfWeek = slot.day_of_week; // 0 = Sunday, 1 = Monday, etc.
+          const hasMatchingDay = weekDays.some(day => getDay(day) === slotDayOfWeek);
+          console.log(`Slot day_of_week ${slotDayOfWeek} matches current week:`, hasMatchingDay);
+          return hasMatchingDay;
+        }
+        
+        // If slot has a date field, use that
+        if (slot.date) {
+          const slotDate = new Date(slot.date);
+          const isInWeek = weekDays.some(day => 
+            format(day, 'yyyy-MM-dd') === format(slotDate, 'yyyy-MM-dd')
+          );
+          console.log(`Slot date ${slot.date} is in current week:`, isInWeek);
+          return isInWeek;
+        }
+        
+        // Default to including the slot
+        return true;
       })
       .map(slot => {
-        // Find the actual date for this day of week in current week
-        const targetDate = weekDays.find(day => getDay(day) === slot.day_of_week);
+        let targetDate;
+        
+        // If slot has day_of_week, find the corresponding date in current week
+        if (slot.day_of_week !== undefined) {
+          targetDate = weekDays.find(day => getDay(day) === slot.day_of_week);
+        }
+        // If slot has a date field, use that
+        else if (slot.date) {
+          targetDate = new Date(slot.date);
+        }
+        // Default to first day of week
+        else {
+          targetDate = weekDays[0];
+        }
         
         return {
-          id: slot.id,
+          id: slot.id || `slot-${Math.random()}`,
           date: format(targetDate, 'yyyy-MM-dd'),
-          time: slot.start_time,
-          end_time: slot.end_time,
-          specialist_email: slot.specialist_email,
-          is_available: slot.is_active,
+          time: slot.start_time || slot.time || '09:00',
+          end_time: slot.end_time || '09:30',
+          specialist_email: slot.specialist_email || '',
+          is_available: slot.is_active !== false,
           original_slot: slot
         };
       })
@@ -236,8 +363,8 @@ export default function BookingWidget({
       const result = await Appointment.create(appointmentData);
       console.log('Booking created:', result);
       
-      // Optionally update the availability slot to mark it as booked
-      if (selectedSlot && !bookingData.is_custom_request) {
+      // Optionally update the availability slot to mark it as booked (only for real slots, not fallback)
+      if (selectedSlot && !bookingData.is_custom_request && !selectedSlot.original_slot?.fallback) {
         try {
           await AvailabilitySlot.update(selectedSlot.id, { is_active: false });
           console.log('Availability slot marked as booked');
@@ -400,6 +527,7 @@ export default function BookingWidget({
           {apiError && (
             <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded mb-4">
               <p className="text-sm">{apiError}</p>
+              <p className="text-xs mt-1">Using fallback availability data for demonstration</p>
             </div>
           )}
 
@@ -561,10 +689,6 @@ export default function BookingWidget({
               setSelectedType(null);
               setSelectedDate('');
               setSelectedTime('');
-              // Reload availability to reflect any changes
-              if (selectedType) {
-                loadAvailability();
-              }
             }}
           >
             Book Another Appointment
