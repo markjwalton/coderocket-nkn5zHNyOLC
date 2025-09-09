@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Calendar, ChevronLeft, ChevronRight, Clock, MessageCircle } from "lucide-react"; 
 import { addWeeks, subWeeks, startOfWeek, endOfWeek, format, eachDayOfInterval, getDay } from "date-fns"; 
 import ProvisionalRequestForm from "./ProvisionalRequestForm";
-import { Appointment, AppointmentType, AvailabilitySlot, buildAvailabilityQuery } from "../utils/api";
+import { Appointment, AppointmentType, AvailabilitySlot, buildAppointmentTypeQuery, buildAvailabilityQuery } from "../utils/api";
 
 export default function BookingWidget({
   onBookingComplete,
@@ -43,9 +43,12 @@ export default function BookingWidget({
       setApiError('');
       
       console.log('Loading appointment types from Base44...');
-      const data = await AppointmentType.list('is_active=true');
-      console.log('Appointment types loaded:', data);
       
+      // Query for active appointment types only
+      const query = buildAppointmentTypeQuery({ is_active: true });
+      const data = await AppointmentType.list(query);
+      
+      console.log('Appointment types loaded:', data);
       setAppointmentTypes(data);
       
     } catch (error) {
@@ -279,6 +282,7 @@ export default function BookingWidget({
                 <Card
                   key={type.id}
                   className="cursor-pointer hover:shadow-md transition-shadow"
+                  style={type.colour ? { borderLeftColor: type.colour, borderLeftWidth: '4px' } : {}}
                   onClick={() => {
                     setSelectedType(type);
                     setStep(2);
@@ -292,6 +296,16 @@ export default function BookingWidget({
                     </p>
                     {type.description && (
                       <p className="text-xs text-gray-500 mt-2">{type.description}</p>
+                    )}
+                    {type.requires_verification && (
+                      <p className="text-xs text-orange-600 mt-1 font-medium">
+                        ⚠️ Requires verification
+                      </p>
+                    )}
+                    {type.advance_booking_days && (
+                      <p className="text-xs text-blue-600 mt-1">
+                        📅 Book {type.advance_booking_days} days in advance
+                      </p>
                     )}
                   </CardContent>
                 </Card>
@@ -317,7 +331,15 @@ export default function BookingWidget({
                 Appointment Calendar
               </CardTitle>
               <p className="text-gray-600 mt-1">{getWeekRange()}</p>
-              <p className="text-sm text-gray-500">Selected: {selectedType?.name}</p>
+              <div className="flex items-center gap-4 mt-1">
+                <p className="text-sm text-gray-500">Selected: {selectedType?.name}</p>
+                {selectedType?.colour && (
+                  <div 
+                    className="w-3 h-3 rounded-full"
+                    style={{ backgroundColor: selectedType.colour }}
+                  />
+                )}
+              </div>
             </div>
             
             <div className="flex items-center gap-2">
@@ -350,6 +372,24 @@ export default function BookingWidget({
           {apiError && (
             <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded mb-4">
               <p className="text-sm">{apiError}</p>
+            </div>
+          )}
+
+          {/* Show advance booking notice */}
+          {selectedType?.advance_booking_days && (
+            <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded mb-4">
+              <p className="text-sm">
+                📅 This appointment type requires booking {selectedType.advance_booking_days} days in advance
+              </p>
+            </div>
+          )}
+
+          {/* Show verification notice */}
+          {selectedType?.requires_verification && (
+            <div className="bg-orange-50 border border-orange-200 text-orange-800 px-4 py-3 rounded mb-4">
+              <p className="text-sm">
+                ⚠️ This appointment requires verification before confirmation
+              </p>
             </div>
           )}
 
@@ -465,16 +505,25 @@ export default function BookingWidget({
           <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <span className="text-2xl text-green-600">✓</span>
           </div>
-          <CardTitle className="text-xl mb-2 text-green-600">Request Submitted!</CardTitle>
+          <CardTitle className="text-xl mb-2 text-green-600">
+            {selectedType?.requires_verification ? 'Request Submitted for Verification!' : 'Request Submitted!'}
+          </CardTitle>
           <p className="text-gray-600 mb-6">
-            One of the team will be in touch to confirm the request
+            {selectedType?.requires_verification 
+              ? 'Your appointment request will be reviewed and verified before confirmation'
+              : 'One of the team will be in touch to confirm the request'
+            }
           </p>
           <Card className="bg-gray-50 mb-6">
             <CardContent className="p-4 text-left">
               <p className="text-sm"><strong>Service:</strong> {selectedType?.name}</p>
+              <p className="text-sm"><strong>Duration:</strong> {selectedType?.duration_minutes} minutes</p>
+              {selectedType?.price && (
+                <p className="text-sm"><strong>Price:</strong> ${selectedType.price}</p>
+              )}
               <p className="text-sm"><strong>Requested Date:</strong> {format(new Date(selectedDate), 'dd/MM/yyyy')}</p>
               <p className="text-sm"><strong>Requested Time:</strong> {selectedTime}</p>
-              <p className="text-sm"><strong>Status:</strong> Provisional</p>
+              <p className="text-sm"><strong>Status:</strong> {selectedType?.requires_verification ? 'Pending Verification' : 'Provisional'}</p>
             </CardContent>
           </Card>
           <Button
