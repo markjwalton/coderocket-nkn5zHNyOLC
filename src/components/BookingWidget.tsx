@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
+import ProvisionalRequestForm from './ProvisionalRequestForm'
 
-interface Service {
+interface AppointmentType {
   id: string
   name: string
   duration_minutes: number
@@ -8,105 +9,112 @@ interface Service {
   description?: string
 }
 
-interface TimeSlot {
-  time: string
-  available: boolean
+interface AvailabilitySlot {
+  date: string
+  day_name: string
+  time_slots: string[]
 }
 
 interface BookingWidgetProps {
-  apiBaseUrl: string
+  appointmentTypes: AppointmentType[]
+  availabilitySlots: AvailabilitySlot[]
+  apiBaseUrl?: string
   onBookingComplete?: (booking: any) => void
   onError?: (error: string) => void
   className?: string
 }
 
-export default function BookingWidget({ 
-  apiBaseUrl, 
-  onBookingComplete, 
+export default function BookingWidget({
+  appointmentTypes,
+  availabilitySlots,
+  apiBaseUrl = '/api',
+  onBookingComplete,
   onError,
   className = ""
 }: BookingWidgetProps) {
-  const [step, setStep] = useState(1)
-  const [loading, setLoading] = useState(false)
-  const [services, setServices] = useState<Service[]>([])
-  const [availableSlots, setAvailableSlots] = useState<TimeSlot[]>([])
-  
-  const [selectedService, setSelectedService] = useState<Service | null>(null)
+  const [currentWeekStart, setCurrentWeekStart] = useState(new Date())
+  const [selectedType, setSelectedType] = useState<AppointmentType | null>(null)
   const [selectedDate, setSelectedDate] = useState('')
   const [selectedTime, setSelectedTime] = useState('')
-  const [customerInfo, setCustomerInfo] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    notes: ''
-  })
+  const [showCustomRequest, setShowCustomRequest] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [step, setStep] = useState(1)
 
-  // Load services on component mount
-  useEffect(() => {
-    loadServices()
-  }, [])
-
-  // Load available time slots when service and date are selected
-  useEffect(() => {
-    if (selectedService && selectedDate) {
-      loadAvailableSlots()
+  // Get week range display
+  const getWeekRange = () => {
+    const start = new Date(currentWeekStart)
+    const end = new Date(start)
+    end.setDate(start.getDate() + 6)
+    
+    const formatDate = (date: Date) => {
+      return date.toLocaleDateString('en-GB', { 
+        day: '2-digit', 
+        month: '2-digit', 
+        year: 'numeric' 
+      })
     }
-  }, [selectedService, selectedDate])
-
-  const loadServices = async () => {
-    try {
-      setLoading(true)
-      const response = await fetch(`${apiBaseUrl}/services`)
-      if (!response.ok) throw new Error('Failed to load services')
-      const data = await response.json()
-      setServices(data)
-    } catch (error) {
-      onError?.(error.message)
-    } finally {
-      setLoading(false)
-    }
+    
+    return `${formatDate(start)} - ${formatDate(end)}`
   }
 
-  const loadAvailableSlots = async () => {
-    try {
-      setLoading(true)
-      const response = await fetch(
-        `${apiBaseUrl}/availability?service_id=${selectedService.id}&date=${selectedDate}`
-      )
-      if (!response.ok) throw new Error('Failed to load availability')
-      const data = await response.json()
-      setAvailableSlots(data.slots || [])
-    } catch (error) {
-      onError?.(error.message)
-      setAvailableSlots([])
-    } finally {
-      setLoading(false)
-    }
+  // Navigate weeks
+  const goToPreviousWeek = () => {
+    const newDate = new Date(currentWeekStart)
+    newDate.setDate(newDate.getDate() - 7)
+    setCurrentWeekStart(newDate)
   }
 
-  const createBooking = async () => {
+  const goToNextWeek = () => {
+    const newDate = new Date(currentWeekStart)
+    newDate.setDate(newDate.getDate() + 7)
+    setCurrentWeekStart(newDate)
+  }
+
+  const goToToday = () => {
+    const today = new Date()
+    const startOfWeek = new Date(today)
+    startOfWeek.setDate(today.getDate() - today.getDay() + 1) // Monday
+    setCurrentWeekStart(startOfWeek)
+  }
+
+  // Filter slots for current week
+  const getCurrentWeekSlots = () => {
+    const weekStart = new Date(currentWeekStart)
+    const weekEnd = new Date(weekStart)
+    weekEnd.setDate(weekStart.getDate() + 6)
+
+    return availabilitySlots.filter(slot => {
+      const slotDate = new Date(slot.date)
+      return slotDate >= weekStart && slotDate <= weekEnd && slot.time_slots.length > 0
+    })
+  }
+
+  // Create provisional booking
+  const createProvisionalBooking = async (bookingData: any) => {
     try {
       setLoading(true)
-      const bookingData = {
-        service_id: selectedService.id,
-        date: selectedDate,
-        time: selectedTime,
-        customer: customerInfo
-      }
-
-      const response = await fetch(`${apiBaseUrl}/bookings`, {
+      
+      const response = await fetch(`${apiBaseUrl}/bookings/provisional`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(bookingData)
+        body: JSON.stringify({
+          ...bookingData,
+          appointment_type_id: selectedType?.id,
+          primary_date: selectedDate,
+          primary_time: selectedTime,
+          status: 'provisional'
+        })
       })
 
-      if (!response.ok) throw new Error('Failed to create booking')
-      const booking = await response.json()
-      
-      setStep(5)
-      onBookingComplete?.(booking)
+      if (!response.ok) {
+        throw new Error('Failed to create provisional booking')
+      }
+
+      const result = await response.json()
+      onBookingComplete?.(result)
+      setStep(3) // Show confirmation
     } catch (error) {
       onError?.(error.message)
     } finally {
@@ -114,245 +122,193 @@ export default function BookingWidget({
     }
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    createBooking()
-  }
-
-  const reset = () => {
-    setStep(1)
-    setSelectedService(null)
-    setSelectedDate('')
-    setSelectedTime('')
-    setCustomerInfo({ name: '', email: '', phone: '', notes: '' })
-    setAvailableSlots([])
-  }
-
-  if (loading && step === 1) {
+  if (step === 1) {
     return (
-      <div className={`max-w-md mx-auto bg-white rounded-lg shadow-lg p-6 ${className}`}>
-        <div className="text-center py-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-2 text-gray-600">Loading services...</p>
+      <div className={`max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-6 ${className}`}>
+        <h2 className="text-2xl font-bold mb-6 text-center">Select Appointment Type</h2>
+        
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {appointmentTypes.map((type) => (
+            <button
+              key={type.id}
+              className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-blue-300 transition-colors text-left"
+              onClick={() => {
+                setSelectedType(type)
+                setStep(2)
+              }}
+            >
+              <h3 className="font-semibold text-lg">{type.name}</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                {type.duration_minutes} minutes • ${type.price}
+              </p>
+              {type.description && (
+                <p className="text-xs text-gray-500 mt-2">{type.description}</p>
+              )}
+            </button>
+          ))}
         </div>
       </div>
     )
   }
 
-  return (
-    <div className={`max-w-md mx-auto bg-white rounded-lg shadow-lg p-6 ${className}`}>
-      <h1 className="text-2xl font-bold mb-6 text-center text-gray-800">Book Appointment</h1>
-      
-      {/* Step 1: Select Service */}
-      {step === 1 && (
-        <div>
-          <h2 className="text-lg font-semibold mb-4 text-gray-700">Select Service</h2>
-          {services.length === 0 ? (
-            <p className="text-gray-500 text-center py-4">No services available</p>
-          ) : (
-            services.map((service) => (
-              <button 
-                key={service.id}
-                className="w-full p-4 mb-3 text-left border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-blue-300 transition-colors"
-                onClick={() => {
-                  setSelectedService(service)
-                  setStep(2)
-                }}
-              >
-                <div className="font-medium text-gray-800">{service.name}</div>
-                <div className="text-sm text-gray-600">
-                  {service.duration_minutes} minutes • ${service.price}
-                </div>
-                {service.description && (
-                  <div className="text-xs text-gray-500 mt-1">{service.description}</div>
-                )}
-              </button>
-            ))
-          )}
-        </div>
-      )}
+  if (step === 2) {
+    const currentWeekSlots = getCurrentWeekSlots()
 
-      {/* Step 2: Select Date */}
-      {step === 2 && (
-        <div>
-          <h2 className="text-lg font-semibold mb-4 text-gray-700">Select Date</h2>
-          <p className="text-sm text-gray-600 mb-3">Service: {selectedService?.name}</p>
-          <input 
-            type="date" 
-            className="w-full p-3 border border-gray-200 rounded-lg mb-4 focus:border-blue-300 focus:outline-none"
-            min={new Date().toISOString().split('T')[0]}
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-          />
-          <div className="flex gap-3">
-            <button 
-              className="flex-1 p-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-              onClick={() => setStep(1)}
+    return (
+      <div className={`max-w-6xl mx-auto bg-white rounded-lg shadow-lg p-6 ${className}`}>
+        {/* Header */}
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-2xl font-bold">Appointment Calendar</h2>
+            <p className="text-gray-600">{getWeekRange()}</p>
+            <p className="text-sm text-gray-500 mt-1">Selected: {selectedType?.name}</p>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <button
+              onClick={goToPreviousWeek}
+              className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50"
             >
-              ← Back
+              ←
             </button>
-            <button 
-              className="flex-1 p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-300"
-              onClick={() => setStep(3)}
-              disabled={!selectedDate}
+            <button
+              onClick={goToToday}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
             >
-              Next →
+              Today
+            </button>
+            <button
+              onClick={goToNextWeek}
+              className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50"
+            >
+              →
             </button>
           </div>
         </div>
-      )}
 
-      {/* Step 3: Select Time */}
-      {step === 3 && (
-        <div>
-          <h2 className="text-lg font-semibold mb-4 text-gray-700">Select Time</h2>
-          <p className="text-sm text-gray-600 mb-3">Date: {selectedDate}</p>
-          
-          {loading ? (
-            <div className="text-center py-4">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
-              <p className="mt-2 text-sm text-gray-600">Loading availability...</p>
-            </div>
-          ) : availableSlots.length === 0 ? (
-            <p className="text-gray-500 text-center py-4">No available times for this date</p>
-          ) : (
-            <div className="grid grid-cols-3 gap-2 mb-4">
-              {availableSlots.map((slot) => (
-                <button
-                  key={slot.time}
-                  className={`p-3 border rounded-lg transition-colors ${
-                    !slot.available 
-                      ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-                      : selectedTime === slot.time 
-                        ? 'bg-blue-600 text-white border-blue-600' 
-                        : 'border-gray-200 hover:bg-gray-50 hover:border-blue-300'
-                  }`}
-                  onClick={() => slot.available && setSelectedTime(slot.time)}
-                  disabled={!slot.available}
-                >
-                  {slot.time}
-                </button>
+        {/* Available Days */}
+        {currentWeekSlots.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-gray-500 mb-4">No appointments available this week</p>
+            <button
+              onClick={() => setShowCustomRequest(true)}
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              Request Custom Time
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 mb-8">
+              {currentWeekSlots.map((slot) => (
+                <div key={slot.date} className="border border-gray-200 rounded-lg p-4">
+                  <h3 className="font-semibold text-lg mb-1">{slot.day_name}</h3>
+                  <p className="text-sm text-gray-600 mb-3">
+                    {new Date(slot.date).toLocaleDateString('en-GB')}
+                  </p>
+                  
+                  <div className="space-y-2">
+                    {slot.time_slots.map((time) => (
+                      <button
+                        key={time}
+                        className={`w-full p-2 text-sm border rounded transition-colors ${
+                          selectedDate === slot.date && selectedTime === time
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'border-gray-200 hover:bg-gray-50 hover:border-blue-300'
+                        }`}
+                        onClick={() => {
+                          setSelectedDate(slot.date)
+                          setSelectedTime(time)
+                        }}
+                      >
+                        {time}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
-          )}
-          
-          <div className="flex gap-3">
-            <button 
-              className="flex-1 p-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-              onClick={() => setStep(2)}
-            >
-              ← Back
-            </button>
-            <button 
-              className="flex-1 p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-300"
-              onClick={() => setStep(4)}
-              disabled={!selectedTime}
-            >
-              Next →
-            </button>
-          </div>
-        </div>
-      )}
 
-      {/* Step 4: Customer Information */}
-      {step === 4 && (
-        <div>
-          <h2 className="text-lg font-semibold mb-4 text-gray-700">Your Information</h2>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
-              <input
-                type="text"
-                required
-                className="w-full p-3 border border-gray-200 rounded-lg focus:border-blue-300 focus:outline-none"
-                value={customerInfo.name}
-                onChange={(e) => setCustomerInfo(prev => ({ ...prev, name: e.target.value }))}
-              />
+            {/* Custom Request Section */}
+            <div className="border-t pt-6">
+              <div className="text-center">
+                <p className="text-gray-600 mb-3">Cannot find a convenient appointment?</p>
+                <button
+                  onClick={() => setShowCustomRequest(true)}
+                  className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  Request Custom Time
+                </button>
+              </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
-              <input
-                type="email"
-                required
-                className="w-full p-3 border border-gray-200 rounded-lg focus:border-blue-300 focus:outline-none"
-                value={customerInfo.email}
-                onChange={(e) => setCustomerInfo(prev => ({ ...prev, email: e.target.value }))}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-              <input
-                type="tel"
-                className="w-full p-3 border border-gray-200 rounded-lg focus:border-blue-300 focus:outline-none"
-                value={customerInfo.phone}
-                onChange={(e) => setCustomerInfo(prev => ({ ...prev, phone: e.target.value }))}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-              <textarea
-                className="w-full p-3 border border-gray-200 rounded-lg focus:border-blue-300 focus:outline-none"
-                rows={3}
-                value={customerInfo.notes}
-                onChange={(e) => setCustomerInfo(prev => ({ ...prev, notes: e.target.value }))}
-                placeholder="Any special requirements..."
-              />
-            </div>
-            
-            <div className="bg-gray-50 p-4 rounded-lg">
-              <h3 className="font-semibold mb-2">Booking Summary</h3>
-              <p className="text-sm"><strong>Service:</strong> {selectedService?.name}</p>
-              <p className="text-sm"><strong>Date:</strong> {selectedDate}</p>
-              <p className="text-sm"><strong>Time:</strong> {selectedTime}</p>
-              <p className="text-sm"><strong>Duration:</strong> {selectedService?.duration_minutes} minutes</p>
-              <p className="text-sm"><strong>Price:</strong> ${selectedService?.price}</p>
-            </div>
+          </>
+        )}
 
-            <div className="flex gap-3">
-              <button 
-                type="button"
-                className="flex-1 p-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-                onClick={() => setStep(3)}
-              >
-                ← Back
-              </button>
-              <button 
-                type="submit"
-                disabled={loading}
-                className="flex-1 p-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400"
-              >
-                {loading ? 'Booking...' : 'Confirm Booking'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* Step 5: Confirmation */}
-      {step === 5 && (
-        <div className="text-center">
-          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
-          <h2 className="text-lg font-semibold mb-2 text-green-600">Booking Confirmed!</h2>
-          <div className="bg-gray-50 p-4 rounded-lg mb-4 text-left">
-            <p className="text-sm"><strong>Service:</strong> {selectedService?.name}</p>
-            <p className="text-sm"><strong>Date:</strong> {selectedDate}</p>
-            <p className="text-sm"><strong>Time:</strong> {selectedTime}</p>
-            <p className="text-sm"><strong>Customer:</strong> {customerInfo.name}</p>
-            <p className="text-sm"><strong>Email:</strong> {customerInfo.email}</p>
-          </div>
-          <p className="text-gray-600 mb-6 text-sm">You will receive a confirmation email shortly.</p>
-          <button 
-            className="w-full p-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            onClick={reset}
+        {/* Action Buttons */}
+        <div className="flex gap-3 mt-6">
+          <button
+            onClick={() => setStep(1)}
+            className="flex-1 p-3 border border-gray-200 rounded-lg hover:bg-gray-50"
           >
-            Book Another Appointment
+            ← Back to Services
           </button>
+          {selectedDate && selectedTime && (
+            <button
+              onClick={() => createProvisionalBooking({
+                primary_date: selectedDate,
+                primary_time: selectedTime
+              })}
+              disabled={loading}
+              className="flex-1 p-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400"
+            >
+              {loading ? 'Booking...' : 'Book Appointment'}
+            </button>
+          )}
         </div>
-      )}
-    </div>
-  )
+
+        {/* Custom Request Modal */}
+        {showCustomRequest && (
+          <ProvisionalRequestForm
+            appointmentType={selectedType}
+            onSubmit={createProvisionalBooking}
+            onCancel={() => setShowCustomRequest(false)}
+            loading={loading}
+          />
+        )}
+      </div>
+    )
+  }
+
+  if (step === 3) {
+    return (
+      <div className={`max-w-md mx-auto bg-white rounded-lg shadow-lg p-6 text-center ${className}`}>
+        <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <span className="text-2xl text-green-600">✓</span>
+        </div>
+        <h2 className="text-xl font-bold mb-2 text-green-600">Request Submitted!</h2>
+        <p className="text-gray-600 mb-6">
+          One of the team will be in touch to confirm the request
+        </p>
+        <div className="bg-gray-50 p-4 rounded-lg mb-6 text-left">
+          <p className="text-sm"><strong>Service:</strong> {selectedType?.name}</p>
+          <p className="text-sm"><strong>Requested Date:</strong> {selectedDate}</p>
+          <p className="text-sm"><strong>Requested Time:</strong> {selectedTime}</p>
+          <p className="text-sm"><strong>Status:</strong> Provisional</p>
+        </div>
+        <button
+          onClick={() => {
+            setStep(1)
+            setSelectedType(null)
+            setSelectedDate('')
+            setSelectedTime('')
+          }}
+          className="w-full p-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+        >
+          Book Another Appointment
+        </button>
+      </div>
+    )
+  }
+
+  return null
 }
