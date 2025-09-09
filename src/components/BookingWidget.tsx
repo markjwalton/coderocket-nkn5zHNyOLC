@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -8,28 +8,26 @@ import { Calendar, ChevronLeft, ChevronRight, Clock, Users, MessageCircle } from
 import { addDays, format, getDay, startOfWeek, endOfWeek, eachDayOfInterval, addWeeks, subWeeks, isAfter, isBefore, startOfToday } from "date-fns";
 import ProvisionalRequestForm from "./ProvisionalRequestForm";
 
+// Static mock data - no API calls
+const MOCK_SERVICES = [
+  { id: 1, name: 'Consultation', duration_minutes: 30, price: 50 },
+  { id: 2, name: 'Treatment', duration_minutes: 60, price: 100 },
+  { id: 3, name: 'Follow-up', duration_minutes: 15, price: 25 }
+];
+
+const MOCK_TIME_SLOTS = ['09:00', '10:00', '11:00', '14:00', '15:00', '16:00'];
+
 export default function BookingWidget() {
   const [currentStep, setCurrentStep] = useState('select-service');
   const [selectedService, setSelectedService] = useState(null);
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedTime, setSelectedTime] = useState(null);
   const [currentWeek, setCurrentWeek] = useState(startOfWeek(startOfToday()));
-  const [availableSlots, setAvailableSlots] = useState([]);
-  const [services, setServices] = useState([]);
   const [customerInfo, setCustomerInfo] = useState({
     name: '', email: '', phone: '', address: '', notes: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showProvisionalForm, setShowProvisionalForm] = useState(false);
-
-  // Mock services data - no API calls
-  useEffect(() => {
-    setServices([
-      { id: 1, name: 'Consultation', duration_minutes: 30, price: 50 },
-      { id: 2, name: 'Treatment', duration_minutes: 60, price: 100 },
-      { id: 3, name: 'Follow-up', duration_minutes: 15, price: 25 }
-    ]);
-  }, []);
 
   const handleServiceSelect = (service) => {
     setSelectedService(service);
@@ -38,8 +36,6 @@ export default function BookingWidget() {
 
   const handleDateSelect = (date) => {
     setSelectedDate(date);
-    // Mock available slots - no API calls
-    setAvailableSlots(['09:00', '10:00', '11:00', '14:00', '15:00', '16:00']);
     setCurrentStep('select-time');
   };
 
@@ -52,30 +48,25 @@ export default function BookingWidget() {
     e.preventDefault();
     setIsSubmitting(true);
     
-    try {
-      // Mock submission - no API calls
-      console.log('Booking submitted:', {
-        customer_name: customerInfo.name,
-        customer_email: customerInfo.email,
-        customer_phone: customerInfo.phone,
-        customer_address: customerInfo.address,
-        customer_notes: customerInfo.notes,
-        appointment_type: selectedService.name,
-        appointment_date: format(selectedDate, 'yyyy-MM-dd'),
-        appointment_time: selectedTime,
-        duration_minutes: selectedService.duration_minutes,
-        status: 'confirmed'
-      });
-      
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      setCurrentStep('confirmation');
-    } catch (error) {
-      console.error('Error creating appointment:', error);
-      alert('Failed to book appointment. Please try again.');
-    }
+    // Mock submission with console log only
+    console.log('Booking submitted:', {
+      customer_name: customerInfo.name,
+      customer_email: customerInfo.email,
+      customer_phone: customerInfo.phone,
+      customer_address: customerInfo.address,
+      customer_notes: customerInfo.notes,
+      appointment_type: selectedService.name,
+      appointment_date: format(selectedDate, 'yyyy-MM-dd'),
+      appointment_time: selectedTime,
+      duration_minutes: selectedService.duration_minutes,
+      status: 'confirmed'
+    });
     
-    setIsSubmitting(false);
+    // Simulate delay
+    setTimeout(() => {
+      setIsSubmitting(false);
+      setCurrentStep('confirmation');
+    }, 1000);
   };
 
   const resetBooking = () => {
@@ -102,9 +93,9 @@ export default function BookingWidget() {
 
   if (showProvisionalForm) {
     return (
-      <div className="max-w-2xl mx-auto">
+      <div className="max-w-2xl mx-auto p-4">
         <ProvisionalRequestForm 
-          appointmentType={selectedService || { id: 0, name: 'Consultation', duration_minutes: 30, price: 50 }}
+          appointmentType={selectedService || MOCK_SERVICES[0]}
           onClose={() => setShowProvisionalForm(false)}
         />
       </div>
@@ -112,7 +103,7 @@ export default function BookingWidget() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="max-w-2xl mx-auto p-4">
       <Card className="border-0 shadow-xl">
         <CardHeader>
           <CardTitle className="text-2xl font-bold text-center">Book Your Appointment</CardTitle>
@@ -121,7 +112,7 @@ export default function BookingWidget() {
           {currentStep === 'select-service' && (
             <div className="space-y-4">
               <h3 className="text-lg font-semibold">Select a Service</h3>
-              {services.map(service => (
+              {MOCK_SERVICES.map(service => (
                 <Button
                   key={service.id}
                   variant="outline"
@@ -196,7 +187,7 @@ export default function BookingWidget() {
               </h3>
               
               <div className="grid grid-cols-3 gap-2">
-                {availableSlots.map(time => (
+                {MOCK_TIME_SLOTS.map(time => (
                   <Button
                     key={time}
                     variant={selectedTime === time ? 'default' : 'outline'}
