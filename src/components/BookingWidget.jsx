@@ -178,6 +178,11 @@ export default function BookingWidget({
     return `${format(start, 'dd/MM/yyyy')} - ${format(end, 'dd/MM/yyyy')}`;
   };
 
+  // Generate verification code
+  const generateVerificationCode = () => {
+    return Math.random().toString(36).substring(2, 8).toUpperCase();
+  };
+
   // Create provisional booking
   const createProvisionalBooking = async (bookingData) => {
     try {
@@ -188,22 +193,45 @@ export default function BookingWidget({
         slot => slot.date === selectedDate && slot.time === selectedTime
       );
       
+      // Format additional requested dates for Base44
+      const additionalDates = bookingData.alternative_dates?.map(alt => 
+        `${alt.date} ${alt.time}`
+      ).join(', ') || '';
+      
       const appointmentData = {
-        appointment_type_id: selectedType?.id,
-        availability_slot_id: selectedSlot?.id,
-        date: selectedDate,
-        time: selectedTime,
+        // Customer information
+        customer_name: bookingData.customer?.name || '',
+        customer_email: bookingData.customer?.email || '',
+        customer_phone: bookingData.customer?.phone || '',
+        customer_address: bookingData.customer?.address || '',
+        
+        // Appointment details
+        appointment_type: selectedType?.id || selectedType?.name,
+        appointment_date: selectedDate,
+        appointment_time: selectedTime,
+        duration_minutes: selectedType?.duration_minutes || 30,
+        
+        // Status and verification
         status: 'provisional',
-        customer_name: bookingData.customer?.name,
-        customer_email: bookingData.customer?.email,
-        customer_phone: bookingData.customer?.phone,
-        notes: bookingData.notes,
-        alternative_dates: bookingData.alternative_dates,
-        is_custom_request: bookingData.is_custom_request || false,
-        specialist_email: selectedSlot?.specialist_email
+        is_verified: false,
+        verification_code: selectedType?.requires_verification ? generateVerificationCode() : '',
+        
+        // Specialist assignment
+        assigned_specialist: selectedSlot?.specialist_email || '',
+        
+        // Notes
+        notes: '', // Internal notes - can be filled by staff
+        customer_notes: bookingData.notes || '',
+        
+        // Additional data
+        additional_requested_dates: additionalDates,
+        
+        // Integration fields (optional)
+        google_event_id: '', // Will be populated when calendar event is created
+        cancellation_reason: '' // Empty for new bookings
       };
       
-      console.log('Creating provisional booking:', appointmentData);
+      console.log('Creating provisional booking with correct field mapping:', appointmentData);
       
       const result = await Appointment.create(appointmentData);
       console.log('Booking created:', result);
@@ -388,7 +416,7 @@ export default function BookingWidget({
           {selectedType?.requires_verification && (
             <div className="bg-orange-50 border border-orange-200 text-orange-800 px-4 py-3 rounded mb-4">
               <p className="text-sm">
-                ⚠️ This appointment requires verification before confirmation
+                ⚠️ This appointment requires verification before confirmation. You will receive a verification code.
               </p>
             </div>
           )}
@@ -506,11 +534,11 @@ export default function BookingWidget({
             <span className="text-2xl text-green-600">✓</span>
           </div>
           <CardTitle className="text-xl mb-2 text-green-600">
-            {selectedType?.requires_verification ? 'Request Submitted for Verification!' : 'Request Submitted!'}
+            {selectedType?.requires_verification ? 'Verification Required!' : 'Request Submitted!'}
           </CardTitle>
           <p className="text-gray-600 mb-6">
             {selectedType?.requires_verification 
-              ? 'Your appointment request will be reviewed and verified before confirmation'
+              ? 'Your appointment request will be reviewed and you will receive a verification code before confirmation'
               : 'One of the team will be in touch to confirm the request'
             }
           </p>

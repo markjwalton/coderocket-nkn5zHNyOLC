@@ -1,4 +1,4 @@
-// Base44 API Helper - Updated with real endpoints and field mappings
+// Base44 API Helper - Updated with all entity field mappings
 const BASE44_API_ENDPOINT = 'https://app.base44.com/api/apps/68a168f4718247f95ed61cd8/entities';
 const API_KEY = '482e914d8fe845f7a6b0438a1428f8ca';
 
@@ -69,7 +69,8 @@ const api = {
 // Entity-specific API functions
 export const Appointment = { 
   create: (data) => api.create('Appointment', data),
-  list: (params) => api.list('Appointment', params)
+  list: (params) => api.list('Appointment', params),
+  update: (id, data) => api.update('Appointment', id, data)
 };
 
 export const AppointmentType = { 
@@ -80,6 +81,32 @@ export const AppointmentType = {
 export const AvailabilitySlot = { 
   list: (params) => api.list('AvailabilitySlot', params),
   update: (id, data) => api.update('AvailabilitySlot', id, data)
+};
+
+// Helper function to build query parameters for Appointment
+// Filterable fields: customer_name, customer_email, customer_phone, customer_address, appointment_type, appointment_date, appointment_time, duration_minutes, status, assigned_specialist, notes, customer_notes, verification_code, is_verified, google_event_id, cancellation_reason, additional_requested_dates
+export const buildAppointmentQuery = (filters = {}) => {
+  const params = new URLSearchParams();
+  
+  if (filters.customer_name) params.append('customer_name', filters.customer_name);
+  if (filters.customer_email) params.append('customer_email', filters.customer_email);
+  if (filters.customer_phone) params.append('customer_phone', filters.customer_phone);
+  if (filters.customer_address) params.append('customer_address', filters.customer_address);
+  if (filters.appointment_type) params.append('appointment_type', filters.appointment_type);
+  if (filters.appointment_date) params.append('appointment_date', filters.appointment_date);
+  if (filters.appointment_time) params.append('appointment_time', filters.appointment_time);
+  if (filters.duration_minutes) params.append('duration_minutes', filters.duration_minutes);
+  if (filters.status) params.append('status', filters.status);
+  if (filters.assigned_specialist) params.append('assigned_specialist', filters.assigned_specialist);
+  if (filters.notes) params.append('notes', filters.notes);
+  if (filters.customer_notes) params.append('customer_notes', filters.customer_notes);
+  if (filters.verification_code) params.append('verification_code', filters.verification_code);
+  if (filters.is_verified !== undefined) params.append('is_verified', filters.is_verified);
+  if (filters.google_event_id) params.append('google_event_id', filters.google_event_id);
+  if (filters.cancellation_reason) params.append('cancellation_reason', filters.cancellation_reason);
+  if (filters.additional_requested_dates) params.append('additional_requested_dates', filters.additional_requested_dates);
+  
+  return params.toString();
 };
 
 // Helper function to build query parameters for AppointmentType
