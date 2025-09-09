@@ -42,6 +42,32 @@ export default function BookingWidget({
   const [appointmentTypes, setAppointmentTypes] = useState<AppointmentType[]>([])
   const [availabilitySlots, setAvailabilitySlots] = useState<AvailabilitySlot[]>([])
   const [loadingData, setLoadingData] = useState(true)
+  const [apiError, setApiError] = useState('')
+
+  // Fallback data in case API fails
+  const fallbackTypes: AppointmentType[] = [
+    {
+      id: '1',
+      name: 'Consultation',
+      duration_minutes: 30,
+      price: 50,
+      description: 'Initial consultation and assessment'
+    },
+    {
+      id: '2',
+      name: 'Treatment Session',
+      duration_minutes: 60,
+      price: 100,
+      description: 'Full treatment session'
+    },
+    {
+      id: '3',
+      name: 'Follow-up',
+      duration_minutes: 15,
+      price: 25,
+      description: 'Quick follow-up appointment'
+    }
+  ]
 
   // Load appointment types and initial availability on mount
   useEffect(() => {
@@ -58,18 +84,42 @@ export default function BookingWidget({
   const loadAppointmentTypes = async () => {
     try {
       setLoadingData(true)
+      setApiError('')
+      
+      console.log('Loading appointment types from:', `${apiBaseUrl}/appointment-types`)
+      
       const response = await fetch(`${apiBaseUrl}/appointment-types`)
       
+      console.log('Response status:', response.status)
+      console.log('Response headers:', response.headers)
+      
       if (!response.ok) {
-        throw new Error('Failed to load appointment types')
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+      
+      const contentType = response.headers.get('content-type')
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text()
+        console.log('Non-JSON response:', text.substring(0, 200))
+        throw new Error('API returned non-JSON response')
       }
       
       const data = await response.json()
-      const activeTypes = data.filter((type: AppointmentType) => type.is_active !== false)
+      console.log('Appointment types data:', data)
+      
+      const activeTypes = Array.isArray(data) 
+        ? data.filter((type: AppointmentType) => type.is_active !== false)
+        : data.types?.filter((type: AppointmentType) => type.is_active !== false) || []
+      
       setAppointmentTypes(activeTypes)
+      
     } catch (error) {
       console.error('Error loading appointment types:', error)
-      onError?.('Failed to load appointment types. Please refresh the page.')
+      setApiError(`API Error: ${error.message}`)
+      
+      // Use fallback data
+      console.log('Using fallback appointment types')
+      setAppointmentTypes(fallbackTypes)
     } finally {
       setLoadingData(false)
     }
@@ -80,25 +130,45 @@ export default function BookingWidget({
     
     try {
       setLoading(true)
+      setApiError('')
+      
       const weekStart = currentWeekStart.toISOString().split('T')[0]
       const weekEnd = new Date(currentWeekStart)
       weekEnd.setDate(weekEnd.getDate() + 6)
       const weekEndStr = weekEnd.toISOString().split('T')[0]
       
-      const response = await fetch(
-        `${apiBaseUrl}/availability?type_id=${selectedType.id}&start_date=${weekStart}&end_date=${weekEndStr}`
-      )
+      const url = `${apiBaseUrl}/availability?type_id=${selectedType.id}&start_date=${weekStart}&end_date=${weekEndStr}`
+      console.log('Loading availability from:', url)
+      
+      const response = await fetch(url)
       
       if (!response.ok) {
-        throw new Error('Failed to load availability')
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+      
+      const contentType = response.headers.get('content-type')
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error('API returned non-JSON response')
       }
       
       const data = await response.json()
-      setAvailabilitySlots(data.slots || [])
+      console.log('Availability data:', data)
+      
+      setAvailabilitySlots(data.slots || data.available_slots || [])
+      
     } catch (error) {
       console.error('Error loading availability:', error)
-      onError?.('Failed to load availability. Please try again.')
-      setAvailabilitySlots([])
+      setApiError(`Availability Error: ${error.message}`)
+      
+      // Use fallback availability data
+      const fallbackSlots = [
+        {
+          date: new Date().toISOString().split('T')[0],
+          day_name: 'Today',
+          time_slots: ['09:00', '10:00', '14:00', '15:00']
+        }
+      ]
+      setAvailabilitySlots(fallbackSlots)
     } finally {
       setLoading(false)
     }
@@ -158,30 +228,36 @@ export default function BookingWidget({
     try {
       setLoading(true)
       
+      const payload = {
+        ...bookingData,
+        appointment_type_id: selectedType?.id,
+        primary_date: selectedDate,
+        primary_time: selectedTime,
+        status: 'provisional'
+      }
+      
+      console.log('Creating booking with payload:', payload)
+      
       const response = await fetch(`${apiBaseUrl}/bookings/provisional`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          ...bookingData,
-          appointment_type_id: selectedType?.id,
-          primary_date: selectedDate,
-          primary_time: selectedTime,
-          status: 'provisional'
-        })
+        body: JSON.stringify(payload)
       })
 
       if (!response.ok) {
-        throw new Error('Failed to create provisional booking')
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
       }
 
       const result = await response.json()
+      console.log('Booking created:', result)
+      
       onBookingComplete?.(result)
       setStep(3) // Show confirmation
     } catch (error) {
       console.error('Error creating booking:', error)
-      onError?.('Failed to create booking. Please try again.')
+      onError?.(`Failed to create booking: ${error.message}`)
     } finally {
       setLoading(false)
     }
@@ -194,6 +270,7 @@ export default function BookingWidget({
         <div className="text-center py-12">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <p className="text-gray-600">Loading appointment types...</p>
+          <p className="text-xs text-gray-400 mt-2">API: {apiBaseUrl}/appointment-types</p>
         </div>
       </div>
     )
@@ -204,14 +281,21 @@ export default function BookingWidget({
       <div className={`max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-6 ${className}`}>
         <h2 className="text-2xl font-bold mb-6 text-center">Select Appointment Type</h2>
         
+        {apiError && (
+          <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded mb-4">
+            <p className="text-sm">{apiError}</p>
+            <p className="text-xs mt-1">Using fallback data for demonstration</p>
+          </div>
+        )}
+        
         {appointmentTypes.length === 0 ? (
           <div className="text-center py-8">
-            <p className="text-gray-500">No appointment types available at the moment.</p>
+            <p className="text-gray-500">No appointment types available.</p>
             <button 
               onClick={loadAppointmentTypes}
               className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
             >
-              Refresh
+              Retry API Call
             </button>
           </div>
         ) : (
@@ -237,10 +321,17 @@ export default function BookingWidget({
             ))}
           </div>
         )}
+        
+        <div className="mt-6 text-center">
+          <p className="text-xs text-gray-400">
+            API Base URL: {apiBaseUrl}
+          </p>
+        </div>
       </div>
     )
   }
 
+  // Rest of the component remains the same...
   if (step === 2) {
     const currentWeekSlots = getCurrentWeekSlots()
 
@@ -275,6 +366,12 @@ export default function BookingWidget({
             </button>
           </div>
         </div>
+
+        {apiError && (
+          <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded mb-4">
+            <p className="text-sm">{apiError}</p>
+          </div>
+        )}
 
         {/* Loading availability */}
         {loading && (
