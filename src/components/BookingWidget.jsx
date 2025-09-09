@@ -2,9 +2,9 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button"; 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Calendar, ChevronLeft, ChevronRight, Clock, MessageCircle } from "lucide-react"; 
-import { addWeeks, subWeeks, startOfWeek, endOfWeek, format, eachDayOfInterval } from "date-fns"; 
+import { addWeeks, subWeeks, startOfWeek, endOfWeek, format, eachDayOfInterval, getDay } from "date-fns"; 
 import ProvisionalRequestForm from "./ProvisionalRequestForm";
-import { Appointment, AppointmentType, AvailabilitySlot } from "../utils/api";
+import { Appointment, AppointmentType, AvailabilitySlot, buildAvailabilityQuery } from "../utils/api";
 
 export default function BookingWidget({
   onBookingComplete,
@@ -43,11 +43,10 @@ export default function BookingWidget({
       setApiError('');
       
       console.log('Loading appointment types from Base44...');
-      const data = await AppointmentType.list();
+      const data = await AppointmentType.list('is_active=true');
       console.log('Appointment types loaded:', data);
       
-      const activeTypes = data.filter(type => type.is_active !== false);
-      setAppointmentTypes(activeTypes);
+      setAppointmentTypes(data);
       
     } catch (error) {
       console.error('Error loading appointment types:', error);
@@ -65,16 +64,20 @@ export default function BookingWidget({
       setLoading(true);
       setApiError('');
       
-      const weekStart = format(currentWeek, 'yyyy-MM-dd');
-      const weekEnd = format(endOfWeek(currentWeek, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+      console.log('Loading availability for:', selectedType.name);
       
-      console.log('Loading availability for:', selectedType.name, 'from', weekStart, 'to', weekEnd);
+      // Build query for current week's availability
+      const query = buildAvailabilityQuery({
+        is_active: true,
+        appointment_types: selectedType.id // or selectedType.name, depending on your data structure
+      });
       
-      const params = `appointment_type_id=${selectedType.id}&date_gte=${weekStart}&date_lte=${weekEnd}&is_available=true`;
-      const data = await AvailabilitySlot.list(params);
-      
+      const data = await AvailabilitySlot.list(query);
       console.log('Availability loaded:', data);
-      setAvailabilitySlots(data);
+      
+      // Filter for current week and convert to our expected format
+      const weekAvailability = processAvailabilityData(data);
+      setAvailabilitySlots(weekAvailability);
       
     } catch (error) {
       console.error('Error loading availability:', error);
@@ -83,6 +86,36 @@ export default function BookingWidget({
     } finally {
       setLoading(false);
     }
+  };
+
+  // Process Base44 availability data into our expected format
+  const processAvailabilityData = (slots) => {
+    const weekDays = eachDayOfInterval({
+      start: currentWeek,
+      end: endOfWeek(currentWeek, { weekStartsOn: 1 })
+    });
+
+    return slots
+      .filter(slot => {
+        // Filter slots for current week
+        const slotDayOfWeek = slot.day_of_week; // 0 = Sunday, 1 = Monday, etc.
+        return weekDays.some(day => getDay(day) === slotDayOfWeek);
+      })
+      .map(slot => {
+        // Find the actual date for this day of week in current week
+        const targetDate = weekDays.find(day => getDay(day) === slot.day_of_week);
+        
+        return {
+          id: slot.id,
+          date: format(targetDate, 'yyyy-MM-dd'),
+          time: slot.start_time,
+          end_time: slot.end_time,
+          specialist_email: slot.specialist_email,
+          is_available: slot.is_active,
+          original_slot: slot
+        };
+      })
+      .filter(slot => slot.is_available);
   };
 
   // Group availability slots by date
@@ -115,7 +148,8 @@ export default function BookingWidget({
         return {
           date: dateStr,
           day_name: format(day, 'EEEE'),
-          time_slots: slots.map(slot => slot.time).sort()
+          time_slots: slots.map(slot => slot.time).sort(),
+          slots: slots // Keep original slot data for booking
         };
       })
       .filter(day => day.time_slots.length > 0);
@@ -146,8 +180,14 @@ export default function BookingWidget({
     try {
       setLoading(true);
       
+      // Find the selected availability slot
+      const selectedSlot = availabilitySlots.find(
+        slot => slot.date === selectedDate && slot.time === selectedTime
+      );
+      
       const appointmentData = {
         appointment_type_id: selectedType?.id,
+        availability_slot_id: selectedSlot?.id,
         date: selectedDate,
         time: selectedTime,
         status: 'provisional',
@@ -156,13 +196,24 @@ export default function BookingWidget({
         customer_phone: bookingData.customer?.phone,
         notes: bookingData.notes,
         alternative_dates: bookingData.alternative_dates,
-        is_custom_request: bookingData.is_custom_request || false
+        is_custom_request: bookingData.is_custom_request || false,
+        specialist_email: selectedSlot?.specialist_email
       };
       
       console.log('Creating provisional booking:', appointmentData);
       
       const result = await Appointment.create(appointmentData);
       console.log('Booking created:', result);
+      
+      // Optionally update the availability slot to mark it as booked
+      if (selectedSlot && !bookingData.is_custom_request) {
+        try {
+          await AvailabilitySlot.update(selectedSlot.id, { is_active: false });
+          console.log('Availability slot marked as booked');
+        } catch (updateError) {
+          console.warn('Could not update availability slot:', updateError);
+        }
+      }
       
       onBookingComplete?.(result);
       setStep(3); // Show confirmation
@@ -228,7 +279,6 @@ export default function BookingWidget({
                 <Card
                   key={type.id}
                   className="cursor-pointer hover:shadow-md transition-shadow"
-                  style={type.color ? { borderLeftColor: type.color, borderLeftWidth: '4px' } : {}}
                   onClick={() => {
                     setSelectedType(type);
                     setStep(2);
@@ -237,7 +287,8 @@ export default function BookingWidget({
                   <CardContent className="p-4">
                     <h3 className="font-semibold text-lg">{type.name}</h3>
                     <p className="text-sm text-gray-600 mt-1">
-                      {type.duration_minutes} minutes • ${type.price}
+                      {type.duration_minutes} minutes
+                      {type.price && ` • $${type.price}`}
                     </p>
                     {type.description && (
                       <p className="text-xs text-gray-500 mt-2">{type.description}</p>
@@ -433,6 +484,10 @@ export default function BookingWidget({
               setSelectedType(null);
               setSelectedDate('');
               setSelectedTime('');
+              // Reload availability to reflect any changes
+              if (selectedType) {
+                loadAvailability();
+              }
             }}
           >
             Book Another Appointment
