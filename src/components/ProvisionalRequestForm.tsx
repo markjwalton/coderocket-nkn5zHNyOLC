@@ -5,16 +5,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Calendar, Plus, Trash2, MessageCircle } from "lucide-react";
-import { format } from "date-fns";
-
-// Mock API functions
-const api = {
-  create: async (entity, data) => {
-    console.log(`Creating ${entity} with data:`, data);
-    return Promise.resolve({ id: 'new_id', ...data });
-  }
-};
-const Appointment = { create: (data) => api.create('Appointment', data) };
 
 interface AppointmentType {
   id: number;
@@ -65,12 +55,14 @@ export default function ProvisionalRequestForm({ appointmentType, onClose }: Pro
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+    
     try {
       const validAdditionalDates = formData.additional_dates
         .filter(item => item.date && item.time)
         .map(item => `${item.date} at ${item.time}`);
 
-      const appointmentData = {
+      // Mock submission - no API calls
+      console.log('Provisional request submitted:', {
         customer_name: formData.customer_name,
         customer_email: formData.customer_email,
         customer_phone: formData.customer_phone,
@@ -82,9 +74,10 @@ export default function ProvisionalRequestForm({ appointmentType, onClose }: Pro
         duration_minutes: appointmentType.duration_minutes,
         status: 'provisional',
         additional_requested_dates: validAdditionalDates.length > 0 ? JSON.stringify(validAdditionalDates) : null
-      };
+      });
 
-      await Appointment.create(appointmentData);
+      // Simulate API delay
+      await new Promise(resolve => setTimeout(resolve, 1000));
       setSubmitted(true);
     } catch (error) {
       console.error('Error creating provisional appointment:', error);
@@ -104,6 +97,11 @@ export default function ProvisionalRequestForm({ appointmentType, onClose }: Pro
         </CardHeader>
         <CardContent className="text-center py-8">
           <div className="max-w-md mx-auto">
+            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
             <h3 className="text-lg font-semibold mb-3">Thank you for your request!</h3>
             <p className="text-gray-600 mb-6">
               One of our team will be in touch to confirm the request within 1 business day.
